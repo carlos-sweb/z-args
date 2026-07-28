@@ -1,180 +1,180 @@
-# Patrones de librerías de parseo de argumentos (args parser)
+# Argument-parsing library patterns (args parser)
 
-Investigación de variantes/estilos encontrados en librerías reales (C, C++, Zig, Rust, Go), clasificados por patrón de diseño.
+Research on the variants/styles found in real libraries (C, C++, Zig, Rust, Go), classified by design pattern.
 
-## 1. Macros + switch imperativo (estilo Plan 9 / suckless)
+## 1. Macros + imperative switch (Plan 9 / suckless style)
 
-**Ejemplos:** `arg.h` (suckless, de 20h), usado en `st`, `dwm`, `sbase`.
+**Examples:** `arg.h` (suckless, ~20 lines), used in `st`, `dwm`, `sbase`.
 
-El programador escribe manualmente un `switch` sobre el carácter de la opción, envuelto en macros `ARGBEGIN`/`ARGEND`. `ARGF()`/`EARGF()` extraen el valor de la opción.
+The programmer manually writes a `switch` over the option character, wrapped in `ARGBEGIN`/`ARGEND` macros. `ARGF()`/`EARGF()` extract the option's value.
 
 ```c
 ARGBEGIN {
 case 'a':
-    argumento = EARGF(uso());
+    argument = EARGF(usage());
     break;
 case 'b':
-    bandera = 1;
+    flag = 1;
     break;
 default:
-    uso();
+    usage();
 } ARGEND
 ```
 
-## 2. Builder / API fluida (registro imperativo de argumentos)
+## 2. Builder / fluent API (imperative argument registration)
 
-**Ejemplos:** `argh` (adishavit), `args-parser` (igormironchik), `p-ranav/argparse`, `cxx_argp`.
+**Examples:** `argh` (adishavit), `args-parser` (igormironchik), `p-ranav/argparse`, `cxx_argp`.
 
-Se construye un objeto parser y se van agregando argumentos uno a uno con métodos encadenables antes de llamar a `parse()`.
+A parser object is built and arguments are added one by one with chainable methods before calling `parse()`.
 
 ```cpp
 argh::parser cmdl(argv);
 if (cmdl[{"-v", "--verbose"}]) { ... }
 ```
 
-## 3. Registro con macros tipo "add_arg" (single-header, tabla dinámica)
+## 3. "add_arg"-style macro registration (single-header, dynamic table)
 
-**Ejemplos:** `argl.h`, `cargs` (stb-style), `stb_argparse.h`.
+**Examples:** `argl.h`, `cargs` (stb-style), `stb_argparse.h`.
 
-Similar al builder, pero en C puro vía funciones `add_arg(nombre, letra, tipo, requerido, default)` que registran en una tabla interna; luego getters tipados (`argl_get_int`, etc.).
+Similar to the builder, but in pure C via `add_arg(name, letter, type, required, default)` functions that register into an internal table; then typed getters (`argl_get_int`, etc.).
 
-## 4. X-Macros / generación de código (struct + parsing en una sola definición)
+## 4. X-Macros / code generation (struct + parsing in a single definition)
 
-**Ejemplos:** `easy-args` (gouwsxander).
+**Examples:** `easy-args` (gouwsxander).
 
-Se definen los argumentos una sola vez con macros (`REQUIRED_STRING_ARG`, `OPTIONAL_UINT_ARG`, `BOOLEAN_ARG`) que expanden simultáneamente: campos del struct, lógica de parseo y texto de ayuda. Evita duplicación pero es difícil de depurar por la indirección de macros.
+Arguments are defined once with macros (`REQUIRED_STRING_ARG`, `OPTIONAL_UINT_ARG`, `BOOLEAN_ARG`) that simultaneously expand into: struct fields, parsing logic, and help text. Avoids duplication but is hard to debug due to macro indirection.
 
-## 5. DSL de texto parseado en comptime (string-driven declarativo)
+## 5. Text DSL parsed at comptime (string-driven declarative)
 
-**Ejemplos:** `zig-clap` (Hejsil).
+**Examples:** `zig-clap` (Hejsil).
 
-Los parámetros se describen como un string tipo "man page" que se parsea en tiempo de compilación (`parseParamsComptime`) generando el tipo de resultado automáticamente.
+Parameters are described as a "man page"-style string parsed at compile time (`parseParamsComptime`), automatically generating the result type.
 
 ```zig
 const params = comptime clap.parseParamsComptime(
-    \\-h, --help         Muestra ayuda.
-    \\-n, --number <usize>  Un valor numérico.
+    \\-h, --help             Show help.
+    \\-n, --number <usize>   A numeric value.
     \\
 );
 ```
 
-## 6. Struct/reflection declarativo (comptime sobre un tipo, sin DSL de texto)
+## 6. Declarative struct/reflection (comptime over a type, no text DSL)
 
-**Ejemplos:** `zig-args` (MasterQ32), `clap` de Rust en modo `derive`.
+**Examples:** `zig-args` (MasterQ32), Rust `clap` in `derive` mode.
 
-En vez de un string, se define un `struct` normal del lenguaje (o se anota con macros/derive) y la librería usa reflection/comptime para generar el parser a partir de los campos y sus tipos.
+Instead of a string, a normal language `struct` is defined (or annotated with macros/derive), and the library uses reflection/comptime to generate the parser from the fields and their types.
 
-## 7. getopt/getopt_long clásico (estándar POSIX)
+## 7. Classic getopt/getopt_long (POSIX standard)
 
-**Ejemplos:** `getopt`, `getopt_long` de libc.
+**Examples:** libc's `getopt`, `getopt_long`.
 
-Bucle manual que llama repetidamente a la función, la cual va devolviendo la siguiente opción encontrada y setea variables globales (`optarg`, `optind`). Es el "más bajo nivel" y la base histórica de casi todo lo demás.
+A manual loop repeatedly calls the function, which returns the next option found and sets global variables (`optarg`, `optind`). The "lowest level" and the historical basis for almost everything else.
 
-## 8. Comandos/subcomandos en árbol (framework CLI completo)
+## 8. Command/subcommand tree (full CLI framework)
 
-**Ejemplos:** `clap` de Rust (builder o derive con subcomandos), `cobra` (Go), un diseño Zig inspirado en clap-rs visto en Ziggit.
+**Examples:** Rust's `clap` (builder or derive with subcommands), `cobra` (Go), a clap-rs-inspired Zig design seen on Ziggit.
 
-Cada subcomando es un nodo con sus propios argumentos, permitiendo CLIs tipo `git commit -m "..."`. Suele combinarse con el patrón builder o declarativo (#2 o #6).
+Each subcommand is a node with its own arguments, enabling CLIs like `git commit -m "..."`. Usually combined with the builder or declarative pattern (#2 or #6).
 
 ---
 
-## Tabla comparativa
+## Comparison table
 
-| # | Patrón | Ejemplos | Pros | Contras |
+| # | Pattern | Examples | Pros | Cons |
 |---|--------|----------|------|---------|
-| 1 | Macros + switch imperativo | arg.h (suckless) | Cero dependencias, binario mínimo, control total del flujo, muy legible para C idiomático suckless | Solo flags de un carácter, sin `--largo=valor` nativo, sin ayuda auto-generada, macros frágiles (mutan `argv`/`argc` globales) |
-| 2 | Builder / API fluida | argh, args-parser, p-ranav/argparse, cxx_argp | Fácil de leer y escribir, buen soporte de tipos modernos (C++17), extensible en runtime | Requiere C++ (STL, plantillas), overhead de objetos, ayuda debe configurarse aparte en varias de ellas |
-| 3 | add_arg + tabla dinámica | argl.h, cargs (stb-style) | Simple de integrar (single header, C puro), ayuda auto-generada decente, tipado explícito por parámetro | Tabla de tamaño fijo o dinámica interna poco visible, getters por nombre de string (sin chequeo en compilación) |
-| 4 | X-Macros (struct+parse en 1 definición) | easy-args | Elimina duplicación (1 fuente de verdad), genera struct + parseo + ayuda automáticamente | Debug doloroso (errores de macro poco claros), requiere entender preprocesador, poco flexible fuera del molde previsto |
-| 5 | DSL de texto en comptime | zig-clap | Muy compacto y legible (se parece a la página de `--help`), tipado fuerte generado automáticamente, cero costo en runtime | El DSL de texto es un "mini-lenguaje" aparte que hay que aprender, errores de sintaxis del DSL se reportan en tiempo de compilación pero de forma menos clara que un error de tipo normal |
-| 6 | Struct/reflection declarativo | zig-args, Rust clap derive | Los argumentos son un struct normal del lenguaje (autocompletado, refactorización segura), muy idiomático | Menos control fino sobre casos raros de parsing, la "magia" de reflection puede ser opaca para debug |
-| 7 | getopt/getopt_long | libc | Estándar POSIX, disponible en cualquier sistema Unix sin dependencias, muy predecible | API de bajo nivel, verboso, sin tipos, sin ayuda ni subcomandos, hay que reimplementar todo lo demás a mano |
-| 8 | Comandos/subcomandos en árbol | clap (Rust), cobra (Go) | Escala bien a CLIs grandes (`git`, `docker`), separa responsabilidades por subcomando, ayuda contextual por nivel | Mayor complejidad de configuración inicial, puede ser "demasiado" para herramientas pequeñas de un solo comando |
+| 1 | Macros + imperative switch | arg.h (suckless) | Zero dependencies, minimal binary, full control of flow, very readable for idiomatic suckless C | Single-character flags only, no native `--long=value`, no auto-generated help, fragile macros (mutate global `argv`/`argc`) |
+| 2 | Builder / fluent API | argh, args-parser, p-ranav/argparse, cxx_argp | Easy to read and write, good modern type support (C++17), extensible at runtime | Requires C++ (STL, templates), object overhead, help must be configured separately in several of them |
+| 3 | add_arg + dynamic table | argl.h, cargs (stb-style) | Simple to integrate (single header, pure C), decent auto-generated help, explicit per-parameter typing | Fixed-size or internally opaque dynamic table, string-named getters (no compile-time checking) |
+| 4 | X-Macros (struct+parse in one definition) | easy-args | Eliminates duplication (one source of truth), auto-generates struct + parsing + help | Painful debugging (unclear macro errors), requires understanding the preprocessor, not very flexible outside the intended mold |
+| 5 | Text DSL at comptime | zig-clap | Very compact and readable (looks like the `--help` page), strong types generated automatically, zero runtime cost | The text DSL is a separate "mini-language" you have to learn; DSL syntax errors are reported at compile time but less clearly than a normal type error |
+| 6 | Declarative struct/reflection | zig-args, Rust clap derive | Arguments are a normal language struct (autocomplete, safe refactoring), very idiomatic | Less fine-grained control over unusual parsing cases, reflection "magic" can be opaque to debug |
+| 7 | getopt/getopt_long | libc | POSIX standard, available on any Unix system with no dependencies, very predictable | Low-level API, verbose, no types, no help or subcommands, everything else has to be reimplemented by hand |
+| 8 | Command/subcommand tree | clap (Rust), cobra (Go) | Scales well to large CLIs (`git`, `docker`), separates responsibilities per subcommand, contextual help per level | Higher initial configuration complexity, can be "too much" for small single-command tools |
 
-## Los 10 lenguajes más usados (TIOBE, julio 2026) y sus librerías de args parsing
+## The 10 most-used languages (TIOBE, July 2026) and their args-parsing libraries
 
-Ranking según TIOBE Index julio 2026: Python, C, C++, Java, C#, JavaScript, Visual Basic, SQL, R, Rust.
+Ranking per the TIOBE Index, July 2026: Python, C, C++, Java, C#, JavaScript, Visual Basic, SQL, R, Rust.
 
-| # | Lenguaje | Librería(s) de args parsing | Patrón (de la tabla de arriba) |
+| # | Language | Args-parsing library/ies | Pattern (from the table above) |
 |---|----------|------------------------------|----------------------------------|
-| 1 | Python | `argparse` (stdlib) | #2 Builder / API fluida |
-| 1 | Python | `click`, `typer` | #6 Struct/reflection declarativo (decoradores + type hints) |
-| 1 | Python | `docopt` | #5 DSL de texto (usage string), variante en runtime en vez de comptime |
-| 1 | Python | `getopt` (stdlib) | #7 getopt clásico |
-| 2 | C | `arg.h` (suckless) | #1 Macros + switch imperativo |
-| 2 | C | `argl.h`, `cargs` | #3 add_arg + tabla dinámica |
-| 2 | C | `getopt`/`getopt_long` (libc) | #7 getopt clásico |
-| 3 | C++ | `argh`, `args-parser`, `p-ranav/argparse`, `cxx_argp` | #2 Builder / API fluida |
-| 3 | C++ | `easy-args` (aunque es C, aplica igual en C++) | #4 X-Macros |
-| 4 | Java | `JCommander`, `picocli`, `args4j` | #6 Struct/reflection declarativo (variante: anotaciones sobre campos en vez de type hints) |
-| 4 | Java | `Apache Commons CLI` | #2 Builder / API fluida |
-| 5 | C# | `System.CommandLine` | #2 Builder / API fluida (con extensiones que soportan #8 subcomandos) |
-| 5 | C# | `CommandLineParser` (CommandLine.dll) | #6 Struct/reflection declarativo (atributos sobre propiedades) |
-| 6 | JavaScript/TypeScript | `commander.js` | #2 Builder / API fluida, con fuerte foco en #8 subcomandos (estilo git) |
-| 6 | JavaScript/TypeScript | `yargs` | #2 Builder / API fluida, más bajo nivel y configurable |
-| 7 | Visual Basic | `System.CommandLine`, `CommandLineParser` (mismas del ecosistema .NET) | #2 y #6 (comparte runtime con C#) |
-| 8 | SQL | No aplica: SQL es un lenguaje de consultas, no tiene programas de línea de comandos propios. Las herramientas cliente (`psql`, `sqlcmd`, `mysql`) usan las librerías del lenguaje en que están escritas (típicamente C o C#), no una librería "de SQL". | — |
-| 9 | R | `optparse` | #2 Builder / API fluida (inspirada directamente en el `optparse` de Python) |
-| 9 | R | `argparse` (paquete de R) | #2 Builder / API fluida, envoltorio sobre el argparse de Python |
-| 10 | Rust | `clap` (modo builder) | #2 Builder / API fluida |
-| 10 | Rust | `clap` (modo `derive`) | #6 Struct/reflection declarativo (macro `#[derive(Parser)]` sobre struct) |
+| 1 | Python | `argparse` (stdlib) | #2 Builder / fluent API |
+| 1 | Python | `click`, `typer` | #6 Declarative struct/reflection (decorators + type hints) |
+| 1 | Python | `docopt` | #5 Text DSL (usage string), runtime variant instead of comptime |
+| 1 | Python | `getopt` (stdlib) | #7 Classic getopt |
+| 2 | C | `arg.h` (suckless) | #1 Macros + imperative switch |
+| 2 | C | `argl.h`, `cargs` | #3 add_arg + dynamic table |
+| 2 | C | `getopt`/`getopt_long` (libc) | #7 Classic getopt |
+| 3 | C++ | `argh`, `args-parser`, `p-ranav/argparse`, `cxx_argp` | #2 Builder / fluent API |
+| 3 | C++ | `easy-args` (a C library, but applies equally in C++) | #4 X-Macros |
+| 4 | Java | `JCommander`, `picocli`, `args4j` | #6 Declarative struct/reflection (variant: field annotations instead of type hints) |
+| 4 | Java | `Apache Commons CLI` | #2 Builder / fluent API |
+| 5 | C# | `System.CommandLine` | #2 Builder / fluent API (with extensions supporting #8 subcommands) |
+| 5 | C# | `CommandLineParser` (CommandLine.dll) | #6 Declarative struct/reflection (property attributes) |
+| 6 | JavaScript/TypeScript | `commander.js` | #2 Builder / fluent API, with a strong focus on #8 subcommands (git-style) |
+| 6 | JavaScript/TypeScript | `yargs` | #2 Builder / fluent API, lower-level and more configurable |
+| 7 | Visual Basic | `System.CommandLine`, `CommandLineParser` (same as the .NET ecosystem) | #2 and #6 (shares runtime with C#) |
+| 8 | SQL | Not applicable: SQL is a query language, it doesn't have command-line programs of its own. Client tools (`psql`, `sqlcmd`, `mysql`) use the libraries of whatever language they're written in (typically C or C#), not a "SQL" library. | — |
+| 9 | R | `optparse` | #2 Builder / fluent API (directly inspired by Python's `optparse`) |
+| 9 | R | `argparse` (R package) | #2 Builder / fluent API, a wrapper over Python's argparse |
+| 10 | Rust | `clap` (builder mode) | #2 Builder / fluent API |
+| 10 | Rust | `clap` (`derive` mode) | #6 Declarative struct/reflection (`#[derive(Parser)]` macro over a struct) |
 
-### Observación
+### Observation
 
-El patrón **#2 (Builder/API fluida)** es, por lejos, el más repetido entre los 10 lenguajes: aparece en Python, C++, Java, C#, JavaScript, R y Rust. El segundo más común es **#6 (struct/reflection declarativo)**, que en cada lenguaje toma una forma distinta según sus capacidades de metaprogramación: decoradores + type hints en Python, anotaciones en Java y C#, macros de derive en Rust. Los patrones más "artesanales" (#1 macros+switch, #3 add_arg, #4 X-Macros) quedan casi exclusivos de C, donde no hay soporte nativo de metaprogramación potente.
+Pattern **#2 (Builder/fluent API)** is by far the most repeated across the 10 languages: it shows up in Python, C++, Java, C#, JavaScript, R, and Rust. The second most common is **#6 (declarative struct/reflection)**, which takes a different shape in each language depending on its metaprogramming capabilities: decorators + type hints in Python, annotations in Java and C#, derive macros in Rust. The more "artisanal" patterns (#1 macros+switch, #3 add_arg, #4 X-Macros) are nearly exclusive to C, where there's no native support for powerful metaprogramming.
 
-## Detalle por lenguaje: clasificación justificada, ejemplos de ejecución y alcance
+## Per-language detail: justified classification, real execution examples, and scope
 
-Esta sección completa la tabla anterior: para cada librería se explica **por qué** se clasifica en su patrón (no solo el número), se muestra un **ejemplo mínimo de código + invocación real por shell**, y se describe su **alcance** (para qué tamaño de CLI sirve, qué resuelve y qué no).
+This section expands on the table above: for each library it explains **why** it's classified under its pattern (not just the number), shows a **minimal code + real shell invocation** example, and describes its **scope** (what size of CLI it's for, what it solves, and what it doesn't).
 
 ### 1. Python
 
-**`argparse` (stdlib) — Patrón #2 (Builder / API fluida)**
-- *Por qué:* se instancia un objeto `ArgumentParser` y se le van agregando argumentos uno a uno con `add_argument(...)`, exactamente el mismo flujo imperativo de registro que `argh` en C++. No hay generación por reflexión: el programador describe cada flag explícitamente en tiempo de ejecución.
-- *Ejemplo:*
+**`argparse` (stdlib) — Pattern #2 (Builder / fluent API)**
+- *Why:* an `ArgumentParser` object is instantiated and arguments are added one by one with `add_argument(...)` — exactly the same imperative registration flow as `argh` in C++. There's no reflection-based generation: the programmer explicitly describes each flag at runtime.
+- *Example:*
   ```python
   import argparse
-  parser = argparse.ArgumentParser(prog="miapp")
+  parser = argparse.ArgumentParser(prog="myapp")
   parser.add_argument("-v", "--verbose", action="store_true")
-  parser.add_argument("archivo")
+  parser.add_argument("file")
   args = parser.parse_args()
   ```
   ```bash
-  $ python miapp.py -v datos.csv
+  $ python myapp.py -v data.csv
   ```
-- *Alcance:* incluida en stdlib (cero dependencias), genera `--help` automáticamente, soporta subcomandos vía `add_subparsers()` (entra en terreno del patrón #8). Es el default razonable para cualquier CLI Python de tamaño pequeño a mediano.
+- *Scope:* included in the stdlib (zero dependencies), auto-generates `--help`, supports subcommands via `add_subparsers()` (edges into pattern #8 territory). The reasonable default for any small-to-medium Python CLI.
 
-**`click`, `typer` — Patrón #6 (Struct/reflection declarativo)**
-- *Por qué:* en `click` se decora una función con `@click.option(...)` y el propio framework inspecciona la firma para inyectar los valores parseados como argumentos de la función; en `typer` directamente se leen los **type hints** de los parámetros (`bool`, `int`, `str`) sin decorador por opción, igual que `zig-args` lee los campos de un struct. La fuente de verdad es la firma de la función/tipo, no una secuencia de llamadas a un builder.
-- *Ejemplo (typer):*
+**`click`, `typer` — Pattern #6 (Declarative struct/reflection)**
+- *Why:* in `click` a function is decorated with `@click.option(...)` and the framework itself inspects the signature to inject the parsed values as function arguments; in `typer` the parameters' **type hints** (`bool`, `int`, `str`) are read directly, with no per-option decorator — the same way `zig-args` reads a struct's fields. The source of truth is the function/type signature, not a sequence of builder calls.
+- *Example (typer):*
   ```python
   import typer
-  def main(verbose: bool = False, archivo: str = ""):
-      if verbose: print("modo verbose")
+  def main(verbose: bool = False, file: str = ""):
+      if verbose: print("verbose mode")
   if __name__ == "__main__":
       typer.run(main)
   ```
   ```bash
-  $ python miapp.py --verbose datos.csv
+  $ python myapp.py --verbose data.csv
   ```
-- *Alcance:* requiere dependencia externa (`pip install click`/`typer`). `click` es el estándar de facto para CLIs Python medianas-grandes con subcomandos (usado por Flask, Black, etc.); `typer` apunta a la misma audiencia pero prioriza inferencia de tipos y menos boilerplate.
+- *Scope:* requires an external dependency (`pip install click`/`typer`). `click` is the de facto standard for medium-to-large Python CLIs with subcommands (used by Flask, Black, etc.); `typer` targets the same audience but prioritizes type inference and less boilerplate.
 
-**`docopt` — Patrón #5 (DSL de texto), variante runtime**
-- *Por qué:* comparte la idea central de `zig-clap` (el texto de ayuda **es** la especificación), pero como Python no tiene comptime, el docstring se parsea en tiempo de ejecución con un motor de gramática/regex en vez de generar tipos en compilación.
-- *Ejemplo:*
+**`docopt` — Pattern #5 (text DSL), runtime variant**
+- *Why:* shares the core idea of `zig-clap` (the help text **is** the specification), but since Python has no comptime, the docstring is parsed at runtime with a grammar/regex engine instead of generating types at compile time.
+- *Example:*
   ```python
-  """Uso: miapp.py [-v] <archivo>"""
+  """Usage: myapp.py [-v] <file>"""
   from docopt import docopt
   args = docopt(__doc__)
   ```
   ```bash
-  $ python miapp.py -v datos.csv
+  $ python myapp.py -v data.csv
   ```
-- *Alcance:* ideal para CLIs pequeñas donde el `--help` y el parser deben ser literalmente el mismo texto sin duplicación; pierde fuerza en CLIs grandes porque el DSL de texto se vuelve difícil de mantener y no hay chequeo de tipos.
+- *Scope:* ideal for small CLIs where the `--help` and the parser must literally be the same text with no duplication; loses steam on large CLIs because the text DSL becomes hard to maintain and there's no type checking.
 
-**`getopt` (stdlib) — Patrón #7 (getopt clásico)**
-- *Por qué:* es un envoltorio directo de la semántica POSIX `getopt`/`getopt_long`: devuelve una lista de tuplas `(opción, valor)` que hay que recorrer e interpretar a mano con un bucle, igual que en C.
-- *Ejemplo:*
+**`getopt` (stdlib) — Pattern #7 (classic getopt)**
+- *Why:* a direct wrapper around POSIX `getopt`/`getopt_long` semantics: it returns a list of `(option, value)` tuples that must be walked and interpreted by hand in a loop, just like in C.
+- *Example:*
   ```python
   import getopt, sys
   opts, args = getopt.getopt(sys.argv[1:], "v", ["verbose"])
@@ -182,19 +182,19 @@ Esta sección completa la tabla anterior: para cada librería se explica **por q
       if opt in ("-v", "--verbose"):
           print("verbose")
   ```
-- *Alcance:* solo para scripts triviales o para migrar código C a Python conservando la misma lógica de parseo; `argparse` lo reemplaza en casi todos los casos nuevos.
+- *Scope:* only for trivial scripts or for migrating C code to Python while keeping the same parsing logic; `argparse` replaces it in almost all new cases.
 
 ### 2. C
 
-**`arg.h` (suckless) — Patrón #1** — ya detallado en la sección 1 de este documento. *Alcance:* binarios de una sola letra por flag, sin heap, pensado para herramientas suckless (`st`, `dwm`) donde el tamaño del binario y cero dependencias priman sobre features.
+**`arg.h` (suckless) — Pattern #1** — already detailed in section 1 of this document. *Scope:* binaries with single-letter flags, no heap, aimed at suckless tools (`st`, `dwm`) where binary size and zero dependencies outweigh features.
 
-**`argl.h`, `cargs` — Patrón #3 (add_arg + tabla dinámica)**
-- *Por qué:* a diferencia de `arg.h` no hay `switch` manual: se registra un arreglo de opciones con su metadata (letra, nombre largo, descripción) y una función de biblioteca recorre `argv` comparando contra esa tabla, generando además `--help` automáticamente.
-- *Ejemplo (`cargs`):*
+**`argl.h`, `cargs` — Pattern #3 (add_arg + dynamic table)**
+- *Why:* unlike `arg.h` there's no manual `switch`: an array of options with their metadata (letter, long name, description) is registered, and a library function walks `argv` comparing against that table, also auto-generating `--help`.
+- *Example (`cargs`):*
   ```c
   struct cag_option options[] = {
     {.identifier = 'v', .access_letters = "v",
-     .access_name = "verbose", .description = "modo verbose"}
+     .access_name = "verbose", .description = "verbose mode"}
   };
   cag_option_context ctx;
   cag_option_init(&ctx, options, CAG_ARRAY_SIZE(options), argc, argv);
@@ -203,13 +203,13 @@ Esta sección completa la tabla anterior: para cada librería se explica **por q
   }
   ```
   ```bash
-  $ ./miapp -v datos.csv
+  $ ./myapp -v data.csv
   ```
-- *Alcance:* single-header en C puro, buen punto intermedio cuando `arg.h` se queda corto (se necesita `--help` generado o flags largas) pero no se quiere adoptar C++.
+- *Scope:* single-header pure C, a good middle ground when `arg.h` falls short (generated `--help` or ergonomic long flags are needed) but adopting C++ isn't desired.
 
-**`getopt`/`getopt_long` (libc) — Patrón #7**
-- *Por qué:* es la definición canónica del patrón: variables globales `optarg`/`optind`, bucle `while ((c = getopt_long(...)) != -1)`.
-- *Ejemplo:*
+**`getopt`/`getopt_long` (libc) — Pattern #7**
+- *Why:* the canonical definition of the pattern: global variables `optarg`/`optind`, a `while ((c = getopt_long(...)) != -1)` loop.
+- *Example:*
   ```c
   static struct option long_opts[] = {
       {"verbose", no_argument, 0, 'v'}, {0,0,0,0}
@@ -220,76 +220,76 @@ Esta sección completa la tabla anterior: para cada librería se explica **por q
   }
   ```
   ```bash
-  $ ./miapp --verbose datos.csv
+  $ ./myapp --verbose data.csv
   ```
-- *Alcance:* disponible en cualquier Unix sin instalar nada; es la base histórica sobre la que casi todo lo demás en esta tabla se construyó o se inspiró.
+- *Scope:* available on any Unix with nothing to install; the historical base almost everything else in this table was built on or inspired by.
 
 ### 3. C++
 
-**`argh`, `args-parser`, `p-ranav/argparse`, `cxx_argp` — Patrón #2**
-- *Por qué:* las cuatro construyen un objeto parser en runtime y encadenan/llaman métodos (`add_argument`, `addArgWithFlagAndName`, `operator[]`) antes de invocar `parse()`; ninguna usa reflexión sobre tipos definidos por el usuario, todo el conocimiento del CLI vive en las llamadas al builder.
-- *Ejemplo (`p-ranav/argparse`, el más cercano en espíritu a Python `argparse`):*
+**`argh`, `args-parser`, `p-ranav/argparse`, `cxx_argp` — Pattern #2**
+- *Why:* all four build a runtime parser object and chain/call methods (`add_argument`, `addArgWithFlagAndName`, `operator[]`) before invoking `parse()`; none use reflection over user-defined types — all the CLI's knowledge lives in the builder calls.
+- *Example (`p-ranav/argparse`, the closest in spirit to Python's `argparse`):*
   ```cpp
-  argparse::ArgumentParser program("miapp");
+  argparse::ArgumentParser program("myapp");
   program.add_argument("-v", "--verbose").flag();
   program.parse_args(argc, argv);
   bool verbose = program.get<bool>("--verbose");
   ```
   ```bash
-  $ ./miapp -v datos.csv
+  $ ./myapp -v data.csv
   ```
-- *Alcance:* single-header, requieren C++17 (salvo `args-parser`, C++14); `argh` es el más minimalista (sin ayuda auto-generada), `argparse` y `args-parser` generan `--help`; `cxx_argp` envuelve `argp.h` de GNU por lo que hereda su comportamiento POSIX pero con API orientada a objetos. Buenos para CLIs medianas sin querer traer un framework grande como Boost.Program_options.
+- *Scope:* single-header, require C++17 (except `args-parser`, C++14); `argh` is the most minimalist (no auto-generated help), `argparse` and `args-parser` generate `--help`; `cxx_argp` wraps GNU's `argp.h`, so it inherits its POSIX behavior but with an object-oriented API. Good for medium-sized CLIs without wanting to pull in a large framework like Boost.Program_options.
 
-**`easy-args` — Patrón #4 (X-Macros)** — ya detallado en la sección 4 original.
-- *Ejemplo adicional:*
+**`easy-args` — Pattern #4 (X-Macros)** — already detailed in the original section 4.
+- *Additional example:*
   ```c
-  #define ARGS BOOLEAN_ARG(verbose, 'v', "verbose", "Modo verbose")
+  #define ARGS BOOLEAN_ARG(verbose, 'v', "verbose", "Verbose mode")
   DEFINE_ARGS(ARGS)
   int main(int argc, char **argv) {
       struct Args args = parse_args(argc, argv);
       if (args.verbose) { /* ... */ }
   }
   ```
-- *Alcance:* aplica igual en C++ que en C (es una librería C); útil cuando se quiere una única fuente de verdad para struct+parseo+ayuda, a costa de que los errores de macro son crípticos.
+- *Scope:* applies equally in C++ as in C (it's a C library); useful when a single source of truth for struct+parsing+help is wanted, at the cost of cryptic macro errors.
 
 ### 4. Java
 
-**`JCommander`, `picocli`, `args4j` — Patrón #6 (variante: anotaciones sobre campos)**
-- *Por qué:* el programador declara una clase normal con campos anotados (`@Parameter`, `@Option`, `@Argument`) y la librería usa reflexión en runtime (no comptime, porque Java no lo tiene) para leer esas anotaciones y poblar la instancia. Es el mismo espíritu que `zig-args` o `clap derive`, pero con reflexión dinámica en vez de metaprogramación estática.
-- *Ejemplo (`picocli`, además soporta subcomandos → toca el patrón #8):*
+**`JCommander`, `picocli`, `args4j` — Pattern #6 (variant: field annotations)**
+- *Why:* the programmer declares a normal class with annotated fields (`@Parameter`, `@Option`, `@Argument`) and the library uses runtime reflection (not comptime, since Java doesn't have it) to read those annotations and populate the instance. Same spirit as `zig-args` or `clap derive`, but with dynamic reflection instead of static metaprogramming.
+- *Example (`picocli`, which also supports subcommands → touches pattern #8):*
   ```java
-  @Command(name = "miapp")
-  class MiApp implements Runnable {
+  @Command(name = "myapp")
+  class MyApp implements Runnable {
       @Option(names = {"-v", "--verbose"}) boolean verbose;
       public void run() { if (verbose) System.out.println("verbose"); }
   }
   public class Main {
       public static void main(String[] args) {
-          new CommandLine(new MiApp()).execute(args);
+          new CommandLine(new MyApp()).execute(args);
       }
   }
   ```
   ```bash
   $ java Main -v
   ```
-- *Alcance:* requieren dependencia (Maven/Gradle); `picocli` es el más completo (autocompletado de shell, colores, subcomandos anidados tipo git), `JCommander` y `args4j` son más ligeras y antiguas.
+- *Scope:* require a dependency (Maven/Gradle); `picocli` is the most complete (shell autocompletion, colors, git-style nested subcommands), `JCommander` and `args4j` are lighter and older.
 
-**`Apache Commons CLI` — Patrón #2 (Builder / API fluida)**
-- *Por qué:* no hay anotaciones; se construye un objeto `Options` y se agregan opciones con `addOption(...)` antes de parsear con `DefaultParser`.
-- *Ejemplo:*
+**`Apache Commons CLI` — Pattern #2 (Builder / fluent API)**
+- *Why:* no annotations; an `Options` object is built and options are added with `addOption(...)` before parsing with `DefaultParser`.
+- *Example:*
   ```java
   Options options = new Options();
-  options.addOption("v", "verbose", false, "modo verbose");
+  options.addOption("v", "verbose", false, "verbose mode");
   CommandLine cmd = new DefaultParser().parse(options, args);
   boolean verbose = cmd.hasOption("v");
   ```
-- *Alcance:* la librería Java "clásica", predatan las de anotaciones; API más verbosa pero sin magia de reflexión, útil cuando se prefiere control explícito.
+- *Scope:* the "classic" Java library, predates the annotation-based ones; a more verbose API but with no reflection magic, useful when explicit control is preferred.
 
 ### 5. C#
 
-**`System.CommandLine` — Patrón #2, con extensiones hacia #8**
-- *Por qué:* se construyen objetos `Option<T>` y `Command` y se agregan a un `RootCommand` mediante llamadas encadenadas; cuando se anidan `Command` dentro de `Command` se obtiene un árbol de subcomandos (patrón #8) montado sobre el mismo builder.
-- *Ejemplo:*
+**`System.CommandLine` — Pattern #2, with extensions toward #8**
+- *Why:* `Option<T>` and `Command` objects are built and added to a `RootCommand` via chained calls; nesting `Command`s inside `Command`s produces a subcommand tree (pattern #8) mounted on the same builder.
+- *Example:*
   ```csharp
   var verboseOption = new Option<bool>("--verbose");
   var root = new RootCommand { verboseOption };
@@ -297,25 +297,25 @@ Esta sección completa la tabla anterior: para cada librería se explica **por q
   return root.Invoke(args);
   ```
   ```bash
-  $ ./miapp --verbose
+  $ ./myapp --verbose
   ```
-- *Alcance:* librería oficial de Microsoft para CLIs .NET; genera `--help`, autocompletado de shell y validación de tipos; es la elegida cuando se quiere el equivalente .NET de `clap`/`cobra`.
+- *Scope:* Microsoft's official library for .NET CLIs; generates `--help`, shell autocompletion, and type validation; the choice when the .NET equivalent of `clap`/`cobra` is wanted.
 
-**`CommandLineParser` (CommandLine.dll) — Patrón #6 (atributos sobre propiedades)**
-- *Por qué:* se define una clase POCO con propiedades anotadas `[Option('v', "verbose")]` y la librería usa reflexión para poblarla desde `args`, análogo a `args4j`/`picocli` en Java.
-- *Ejemplo:*
+**`CommandLineParser` (CommandLine.dll) — Pattern #6 (property attributes)**
+- *Why:* a POCO class is defined with annotated properties `[Option('v', "verbose")]`, and the library uses reflection to populate it from `args`, analogous to `args4j`/`picocli` in Java.
+- *Example:*
   ```csharp
   class Options { [Option('v', "verbose")] public bool Verbose { get; set; } }
   Parser.Default.ParseArguments<Options>(args)
       .WithParsed(o => { if (o.Verbose) Console.WriteLine("verbose"); });
   ```
-- *Alcance:* alternativa comunitaria más antigua que `System.CommandLine`, popular en proyectos pequeños/medianos por su brevedad declarativa.
+- *Scope:* a community alternative older than `System.CommandLine`, popular in small/medium projects for its declarative brevity.
 
 ### 6. JavaScript / TypeScript
 
-**`commander.js` — Patrón #2, con fuerte foco en #8 (subcomandos estilo git)**
-- *Por qué:* se registra todo sobre un objeto `program` encadenando `.option()`/`.command()`, pero su caso de uso principal y su documentación giran en torno a construir árboles de subcomandos (`git`-like), por lo que en la práctica vive a caballo entre #2 y #8.
-- *Ejemplo:*
+**`commander.js` — Pattern #2, with a strong focus on #8 (git-style subcommands)**
+- *Why:* everything is registered on a `program` object by chaining `.option()`/`.command()`, but its main use case and documentation revolve around building subcommand trees (`git`-like), so in practice it lives between #2 and #8.
+- *Example:*
   ```javascript
   const { program } = require('commander');
   program.option('-v, --verbose').command('build')
@@ -323,27 +323,27 @@ Esta sección completa la tabla anterior: para cada librería se explica **por q
   program.parse();
   ```
   ```bash
-  $ node miapp.js build -v
+  $ node myapp.js build -v
   ```
-- *Alcance:* la librería CLI más popular del ecosistema Node; genera ayuda y sugerencias de subcomando automáticamente.
+- *Scope:* the most popular CLI library in the Node ecosystem; auto-generates help and subcommand suggestions.
 
-**`yargs` — Patrón #2, más bajo nivel y configurable**
-- *Por qué:* mismo estilo builder encadenable (`.option()`, `.command()`, `.demandOption()`), pero expone más control fino (validaciones custom, coerción de tipos, middlewares) a costa de más configuración explícita que `commander.js`.
-- *Ejemplo:*
+**`yargs` — Pattern #2, lower-level and more configurable**
+- *Why:* the same chainable builder style (`.option()`, `.command()`, `.demandOption()`), but exposes finer-grained control (custom validation, type coercion, middlewares) at the cost of more explicit configuration than `commander.js`.
+- *Example:*
   ```javascript
   const argv = require('yargs/yargs')(process.argv.slice(2))
       .option('verbose', { alias: 'v', type: 'boolean' }).argv;
   ```
   ```bash
-  $ node miapp.js -v
+  $ node myapp.js -v
   ```
-- *Alcance:* preferida cuando se necesita validación/parseo complejo (arrays, coerción, comandos dinámicos) que `commander.js` no cubre de forma tan directa.
+- *Scope:* preferred when complex validation/parsing is needed (arrays, coercion, dynamic commands) that `commander.js` doesn't cover as directly.
 
 ### 7. Visual Basic
 
-**`System.CommandLine`, `CommandLineParser` — mismas librerías del punto 5, sintaxis VB**
-- *Por qué:* Visual Basic .NET comparte el mismo CLR y las mismas librerías que C#; solo cambia la sintaxis del lenguaje anfitrión, no el patrón de diseño de la librería.
-- *Ejemplo (`CommandLineParser` en VB):*
+**`System.CommandLine`, `CommandLineParser` — same libraries as section 5, VB syntax**
+- *Why:* Visual Basic .NET shares the same CLR and the same libraries as C#; only the host language's syntax changes, not the library's design pattern.
+- *Example (`CommandLineParser` in VB):*
   ```vb
   Class Options
       <[Option]("v", "verbose")>
@@ -352,21 +352,21 @@ Esta sección completa la tabla anterior: para cada librería se explica **por q
   Parser.Default.ParseArguments(Of Options)(args) _
       .WithParsed(Sub(o) If o.Verbose Then Console.WriteLine("verbose"))
   ```
-- *Alcance:* idéntico al de C# (#5): útil en shops que ya usan VB.NET sobre .NET moderno, sin librerías propias del lenguaje.
+- *Scope:* identical to C# (#5): useful in shops already running VB.NET on modern .NET, with no language-specific libraries of its own.
 
 ### 8. SQL
 
-No aplica directamente: SQL es un lenguaje de consultas embebido, no compila a binarios con `argv`. Pero vale la pena mirar qué usan sus clientes CLI más comunes, porque ilustra cómo el mismo problema se resuelve en el lenguaje real de implementación de cada herramienta:
-- `psql` (PostgreSQL) está escrito en C y usa `getopt_long` — patrón **#7**.
-- `mysql` (cliente MySQL) está escrito en C y usa `my_getopt`, una reimplementación propia de `getopt_long` — patrón **#7**.
-- `sqlcmd` moderno (reescritura Microsoft en Go, `go-sqlcmd`) usa `spf13/cobra` — patrón **#8** montado sobre builder.
-- *Alcance:* confirma la observación general: el patrón depende del lenguaje de implementación de la herramienta, no del lenguaje de consulta que expone.
+Doesn't apply directly: SQL is an embedded query language, it doesn't compile into binaries with `argv`. But it's worth looking at what its most common CLI clients use, since it illustrates how the same problem is solved in each tool's actual implementation language:
+- `psql` (PostgreSQL) is written in C and uses `getopt_long` — pattern **#7**.
+- `mysql` (MySQL client) is written in C and uses `my_getopt`, its own reimplementation of `getopt_long` — pattern **#7**.
+- Modern `sqlcmd` (Microsoft's Go rewrite, `go-sqlcmd`) uses `spf13/cobra` — pattern **#8** mounted on a builder.
+- *Scope:* confirms the general observation: the pattern depends on the tool's implementation language, not the query language it exposes.
 
 ### 9. R
 
-**`optparse` — Patrón #2 (Builder / API fluida)**
-- *Por qué:* inspirada explícitamente en el `optparse`/`argparse` de Python: se arma una `option_list` con `make_option(...)` y se registra en un `OptionParser`, con `parse_args()` al final.
-- *Ejemplo:*
+**`optparse` — Pattern #2 (Builder / fluent API)**
+- *Why:* explicitly inspired by Python's `optparse`/`argparse`: an `option_list` is built with `make_option(...)` and registered in an `OptionParser`, with `parse_args()` at the end.
+- *Example:*
   ```r
   library(optparse)
   option_list <- list(make_option(c("-v", "--verbose"), action = "store_true"))
@@ -374,39 +374,39 @@ No aplica directamente: SQL es un lenguaje de consultas embebido, no compila a b
   args <- parse_args(parser)
   ```
   ```bash
-  $ Rscript miapp.R --verbose
+  $ Rscript myapp.R --verbose
   ```
-- *Alcance:* la opción estándar para scripts `Rscript` en pipelines de análisis de datos/bioinformática.
+- *Scope:* the standard choice for `Rscript` scripts in data-analysis/bioinformatics pipelines.
 
-**`argparse` (paquete de R) — Patrón #2**
-- *Por qué:* API deliberadamente calcada del `argparse` de Python (`ArgumentParser()`, `add_argument()`, `parse_args()`); mismo estilo imperativo de registro método a método.
-- *Ejemplo:*
+**`argparse` (R package) — Pattern #2**
+- *Why:* an API deliberately modeled after Python's `argparse` (`ArgumentParser()`, `add_argument()`, `parse_args()`); the same imperative, method-by-method registration style.
+- *Example:*
   ```r
   library(argparse)
   parser <- ArgumentParser()
   parser$add_argument("-v", "--verbose", action = "store_true")
   args <- parser$parse_args()
   ```
-- *Alcance:* misma audiencia que `optparse`, elegida cuando el equipo ya conoce el `argparse` de Python y quiere la misma API en R.
+- *Scope:* same audience as `optparse`, chosen when the team already knows Python's `argparse` and wants the same API in R.
 
 ### 10. Rust
 
-**`clap` modo builder — Patrón #2**
-- *Por qué:* se construye un `Command` y se le agregan `Arg` uno a uno encadenando métodos antes de `get_matches()`.
-- *Ejemplo:*
+**`clap` builder mode — Pattern #2**
+- *Why:* a `Command` is built and `Arg`s are added one by one by chaining methods before `get_matches()`.
+- *Example:*
   ```rust
-  let matches = Command::new("miapp")
+  let matches = Command::new("myapp")
       .arg(Arg::new("verbose").short('v').long("verbose").action(ArgAction::SetTrue))
       .get_matches();
   ```
   ```bash
-  $ ./miapp -v
+  $ ./myapp -v
   ```
-- *Alcance:* máximo control y validaciones dinámicas (útil cuando la estructura del CLI se decide en runtime).
+- *Scope:* maximum control and dynamic validation (useful when the CLI's structure is decided at runtime).
 
-**`clap` modo `derive` — Patrón #6**
-- *Por qué:* se anota un `struct` normal con `#[derive(Parser)]` y atributos `#[arg(...)]` por campo; el macro procedural genera el parser en tiempo de compilación a partir de los tipos del struct, igual que `zig-args`.
-- *Ejemplo:*
+**`clap` `derive` mode — Pattern #6**
+- *Why:* a normal `struct` is annotated with `#[derive(Parser)]` and per-field `#[arg(...)]` attributes; the procedural macro generates the parser at compile time from the struct's types, the same as `zig-args`.
+- *Example:*
   ```rust
   #[derive(Parser)]
   struct Cli {
@@ -415,52 +415,52 @@ No aplica directamente: SQL es un lenguaje de consultas embebido, no compila a b
   }
   let cli = Cli::parse();
   ```
-- *Alcance:* la opción más idiomática y usada en el ecosistema Rust moderno; requiere el feature `derive` de `clap` y compilación de macros procedurales (tiempo de compilación algo mayor).
+- *Scope:* the most idiomatic and widely used option in the modern Rust ecosystem; requires clap's `derive` feature and procedural-macro compilation (somewhat higher compile time).
 
-### Extra (fuera del top 10 TIOBE, agregados a pedido): Crystal y Nim
+### Extra (outside the TIOBE top 10, added on request): Crystal and Nim
 
-Aunque no entran en el ranking TIOBE de julio 2026 usado arriba, Crystal y Nim son relevantes para este proyecto porque, como Zig, son lenguajes de sistemas con metaprogramación en tiempo de compilación (macros/comptime) — el mismo terreno donde compiten `zig-clap` y `zig-args`. Vale la pena ver cómo resuelven el mismo problema.
+Although they don't make the July 2026 TIOBE ranking used above, Crystal and Nim are relevant to this project because, like Zig, they're systems languages with compile-time metaprogramming (macros/comptime) — the same ground where `zig-clap` and `zig-args` compete. Worth seeing how they solve the same problem.
 
 **Crystal**
 
-**`OptionParser` (stdlib) — Patrón #2 (Builder / API fluida)**
-- *Por qué:* está modelada explícitamente sobre el `OptionParser` de la stdlib de Ruby: se abre un bloque `OptionParser.parse do |parser| ... end` y dentro se registra cada flag con `parser.on(...)`, encadenando registros imperativos igual que `argh` o `argparse`. La forma de bloque es azúcar sintáctica de Crystal, pero el flujo de fondo es "crear parser → registrar opciones una por una → ejecutar".
-- *Ejemplo:*
+**`OptionParser` (stdlib) — Pattern #2 (Builder / fluent API)**
+- *Why:* explicitly modeled on Ruby stdlib's `OptionParser`: an `OptionParser.parse do |parser| ... end` block is opened and each flag is registered inside with `parser.on(...)`, chaining imperative registrations just like `argh` or `argparse`. The block form is Crystal syntactic sugar, but the underlying flow is "create parser → register options one by one → run".
+- *Example:*
   ```crystal
   require "option_parser"
   verbose = false
   OptionParser.parse do |parser|
-    parser.banner = "Uso: miapp [opciones]"
-    parser.on("-v", "--verbose", "Modo verbose") { verbose = true }
+    parser.banner = "Usage: myapp [options]"
+    parser.on("-v", "--verbose", "Verbose mode") { verbose = true }
   end
   ```
   ```bash
-  $ ./miapp -v
+  $ ./myapp -v
   ```
-- *Alcance:* incluida en la stdlib (cero dependencias), genera `--help` a partir del `banner` + las descripciones; suficiente para la mayoría de scripts y herramientas Crystal de una sola vía.
+- *Scope:* included in the stdlib (zero dependencies), generates `--help` from the `banner` + descriptions; enough for most single-purpose Crystal scripts and tools.
 
-**`admiral.cr` — Patrón #6 (Struct/reflection declarativo, vía macros)**
-- *Por qué:* se define una clase que hereda de `Admiral::Command` y se declaran los flags con el macro `define_flag` (análogo a un campo de struct anotado); el macro de Crystal expande en tiempo de compilación los getters, el parseo y la ayuda, igual que hace `clap derive` en Rust o `zig-args` con reflection sobre un struct.
-- *Ejemplo:*
+**`admiral.cr` — Pattern #6 (Declarative struct/reflection, via macros)**
+- *Why:* a class inheriting from `Admiral::Command` is defined, and flags are declared with the `define_flag` macro (analogous to an annotated struct field); Crystal's macro expands, at compile time, the getters, the parsing, and the help — the same as `clap derive` in Rust or `zig-args` with reflection over a struct.
+- *Example:*
   ```crystal
-  class MiCLI < Admiral::Command
-    define_flag verbose : Bool, default: false, short: v, description: "Modo verbose"
+  class MyCLI < Admiral::Command
+    define_flag verbose : Bool, default: false, short: v, description: "Verbose mode"
     def run
       puts "verbose" if flags.verbose
     end
   end
-  MiCLI.run
+  MyCLI.run
   ```
   ```bash
-  $ ./miapp -v
+  $ ./myapp -v
   ```
-- *Alcance:* soporta subcomandos (`define_command`, tocando el patrón #8, estilo git); es la opción "framework completo" de Crystal, análoga a `picocli`/`clap` — más apropiada cuando el CLI crece más allá de un puñado de flags.
+- *Scope:* supports subcommands (`define_command`, touching pattern #8, git-style); it's Crystal's "full framework" option, analogous to `picocli`/`clap` — better suited once the CLI grows past a handful of flags.
 
 **Nim**
 
-**`std/parseopt` (stdlib) — Patrón #7 (getopt clásico)**
-- *Por qué:* es un iterador de bajo nivel (`for kind, key, val in getopt(): ...`) que va devolviendo el siguiente token de `argv` y su tipo (`cmdShortOption`, `cmdLongOption`, `cmdArgument`), dejando toda la interpretación al programador — el mismo contrato que `getopt`/`getopt_long` de libc, solo que expresado como iterador en vez de bucle con variables globales.
-- *Ejemplo:*
+**`std/parseopt` (stdlib) — Pattern #7 (classic getopt)**
+- *Why:* a low-level iterator (`for kind, key, val in getopt(): ...`) that returns the next `argv` token and its type (`cmdShortOption`, `cmdLongOption`, `cmdArgument`), leaving all interpretation to the programmer — the same contract as libc's `getopt`/`getopt_long`, just expressed as an iterator instead of a loop with global variables.
+- *Example:*
   ```nim
   import std/parseopt
   var verbose = false
@@ -471,65 +471,65 @@ Aunque no entran en el ranking TIOBE de julio 2026 usado arriba, Crystal y Nim s
     else: discard
   ```
   ```bash
-  $ ./miapp -v
+  $ ./myapp -v
   ```
-- *Alcance:* sin dependencias externas, pero sin ayuda automática ni tipos — la base sobre la que se construyen librerías Nim de más alto nivel, igual que `getopt` es la base en C.
+- *Scope:* no external dependencies, but no automatic help or types — the base higher-level Nim libraries are built on, the same way `getopt` is the base in C.
 
-**`cligen` — Patrón #6 (Struct/reflection declarativo, vía macros sobre firma de función)**
-- *Por qué:* en vez de anotar un struct, se escribe un `proc` normal de Nim con parámetros tipados y valores por defecto; el macro `dispatch(miProc)` inspecciona esa firma en tiempo de compilación y genera el parser, la conversión de tipos y el `--help` automáticamente. Es el mismo espíritu reflexivo de `typer` en Python (leer la firma como fuente de verdad) pero resuelto en comptime con macros de Nim en vez de type hints runtime.
-- *Ejemplo:*
+**`cligen` — Pattern #6 (Declarative struct/reflection, via macros over a function signature)**
+- *Why:* instead of annotating a struct, a normal Nim `proc` is written with typed parameters and default values; the `dispatch(myProc)` macro inspects that signature at compile time and generates the parser, type conversion, and `--help` automatically. Same reflective spirit as `typer` in Python (read the signature as the source of truth) but resolved at comptime with Nim macros instead of runtime type hints.
+- *Example:*
   ```nim
   import cligen
-  proc miapp(verbose = false, archivo = "") =
-    if verbose: echo "modo verbose"
-  dispatch(miapp)
+  proc myapp(verbose = false, file = "") =
+    if verbose: echo "verbose mode"
+  dispatch(myapp)
   ```
   ```bash
-  $ ./miapp --verbose --archivo=datos.csv
+  $ ./myapp --verbose --file=data.csv
   ```
-- *Alcance:* es la librería de CLI más popular del ecosistema Nim por su bajísimo boilerplate (una función = un CLI completo); igual que otros miembros del patrón #6, ofrece menos control fino sobre casos de parsing atípicos que un builder explícito.
+- *Scope:* the most popular CLI library in the Nim ecosystem for its very low boilerplate (one function = one full CLI); like other pattern #6 members, offers less fine-grained control over unusual parsing cases than an explicit builder.
 
-**`docopt.nim` — Patrón #5 (DSL de texto, variante runtime)**
-- *Por qué:* es un port directo del `docopt` de Python al ecosistema Nim: el string de uso/ayuda es la especificación, parseada en tiempo de ejecución.
-- *Alcance:* mismo trade-off que `docopt` en Python — muy compacto para CLIs chicas, poco práctico para CLIs grandes o con lógica de validación compleja.
+**`docopt.nim` — Pattern #5 (text DSL, runtime variant)**
+- *Why:* a direct port of Python's `docopt` to the Nim ecosystem: the usage/help string is the specification, parsed at runtime.
+- *Scope:* same trade-off as `docopt` in Python — very compact for small CLIs, impractical for large CLIs or complex validation logic.
 
-### Observación (actualizada con Crystal y Nim)
+### Observation (updated with Crystal and Nim)
 
-La inclusión de Crystal y Nim refuerza el patrón ya visto en Zig: en lenguajes de sistemas con metaprogramación en tiempo de compilación, la disyuntiva de fondo es siempre la misma **#2 (builder explícito, más control) vs. #6 (struct/función + reflection/macros, menos boilerplate)** — `OptionParser` vs. `admiral.cr` en Crystal, y `parseopt` vs. `cligen` en Nim, replican exactamente la disyuntiva `zig-clap`/`zig-args` (aunque estos últimos dos son ambos declarativos entre sí, #5 vs #6) que motiva este proyecto: un paquete de opciones en `z-args` debería, como mínimo, cubrir el escalón "builder de bajo nivel tipo getopt" (#7), el escalón "builder imperativo" (#2) y el escalón "declarativo por struct" (#6), que es donde consistentemente aparecen las librerías más usadas en cada lenguaje relevado.
+Including Crystal and Nim reinforces the pattern already seen in Zig: in systems languages with compile-time metaprogramming, the underlying tradeoff is always the same **#2 (explicit builder, more control) vs. #6 (struct/function + reflection/macros, less boilerplate)** — `OptionParser` vs. `admiral.cr` in Crystal, and `parseopt` vs. `cligen` in Nim, exactly replicate the `zig-clap`/`zig-args` tradeoff (though those last two are both declarative relative to each other, #5 vs #6) that motivates this project: an options package in `z-args` should, at minimum, cover the "low-level getopt-style builder" rung (#7), the "imperative builder" rung (#2), and the "struct-declarative" rung (#6) — consistently where the most-used libraries land in each surveyed language.
 
-## Plan de diseño de `z-args`: alcance real de cada patrón en Zig 0.16
+## `z-args` design plan: real-world scope of each pattern in Zig 0.16
 
-Objetivo de esta sección: para cada uno de los 8 patrones (y la variante #4, que resulta ser un caso especial), evaluar **qué tan literalmente se puede portar a Zig 0.16** dado lo que el lenguaje realmente ofrece (comptime, `@typeInfo`, structs genéricos parametrizados por valores comptime) y lo que **no** ofrece (preprocesador tipo C, macros de token-pasting, atributos/anotaciones sobre campos de struct como Rust/Java/C#). El resultado es una propuesta de módulos (`tiers`) que `z-args` expondría, de más simple a más completo, para que el usuario final cargue solo la complejidad que necesita — igual que en tu ejemplo: empezar en el equivalente de `arg.h` y subir de escalón el día que aparezca una flag que dependa de otra.
+Goal of this section: for each of the 8 patterns (and variant #4, which turns out to be a special case), evaluate **how literally it can be ported to Zig 0.16** given what the language actually offers (comptime, `@typeInfo`, generic structs parameterized by comptime values) and what it **doesn't** offer (a C-style preprocessor, token-pasting macros, attributes/annotations on struct fields like Rust/Java/C#). The result is a proposal of modules (`tiers`) that `z-args` would expose, from simplest to most complete, so the end user only loads the complexity they need — same as the motivating example: start at the equivalent of `arg.h` and climb a rung the day a flag needs to depend on another one.
 
-Todo el código base parte de `std.process.Init` (Zig 0.16, "Juicy Main"): `init.args.iterate()` para iterar `argv` de forma perezosa, o `init.minimal.args.toSlice(allocator)` si se necesita un slice materializado.
+The whole codebase starts from `std.process.Init` (Zig 0.16, "Juicy Main"): `std.process.Args.Iterator.init(init.minimal.args)` to iterate `argv` lazily (confirmed against real Zig 0.16 stdlib and `z-run`'s own usage — an earlier draft of this note assumed a nonexistent `init.args.iterate()` shape).
 
-### Tier 0 — Patrón #1 (macros + switch) → sin librería / `z-args` "raw"
+### Tier 0 — Pattern #1 (macros + switch) → no library / `z-args` "raw"
 
-- **Alcance real:** ARGBEGIN/ARGEND de `arg.h` dependen de macros de preprocesador con pegado de tokens y mutación de `argc`/`argv` globales — Zig no tiene preprocesador, así que esa mecánica **no es portable literalmente**. Lo que sí es 100% idiomático es el espíritu: recorrer `argv` a mano con un `while` + `switch` explícito, que en Zig es tan ligero como en C.
-- **Boceto:**
+- **Real-world scope:** `arg.h`'s ARGBEGIN/ARGEND depend on preprocessor macros with token-pasting and mutation of global `argc`/`argv` — Zig has no preprocessor, so that mechanism **isn't literally portable**. What is 100% idiomatic is the spirit: walking `argv` by hand with an explicit `while` + `switch`, which is just as lightweight in Zig as in C.
+- **Sketch:**
   ```zig
   pub fn main(init: std.process.Init) !void {
-      var args = init.args.iterate();
-      _ = args.next(); // nombre del programa
+      var it = std.process.Args.Iterator.init(init.minimal.args);
+      _ = it.skip(); // program name
       var verbose = false;
       var out_file: []const u8 = "a.out";
-      while (args.next()) |arg| {
+      while (it.next()) |arg| {
           if (std.mem.eql(u8, arg, "-v")) {
               verbose = true;
           } else if (std.mem.eql(u8, arg, "-o")) {
-              out_file = args.next() orelse return error.MissingValue;
+              out_file = it.next() orelse return error.MissingValue;
           } else {
               return error.UnknownFlag;
           }
       }
   }
   ```
-- **Conclusión:** no amerita empaquetarse como librería en sí — como mucho, `z-args` puede ofrecer un helper mínimo (`ArgIter` con `.shift()`/`.expect()`, equivalente a `EARGF`) para recortar boilerplate sin ocultar el `switch`. Es el escalón "sin abstracción, control total", útil como referencia y como lo que uno usa cuando ni siquiera quiere pagar el costo de un parser genérico.
+- **Conclusion:** doesn't warrant being packaged as a library on its own — at most, `z-args` can offer a minimal helper (`ArgIter` with `.shift()`/`.expect()`, equivalent to `EARGF`) to trim boilerplate without hiding the `switch`. It's the "no abstraction, full control" rung, useful as a reference and for when you don't even want to pay the cost of a generic parser.
 
-### Tier 1 — Patrón #7 (getopt clásico) → `z-args/getopt`
+### Tier 1 — Pattern #7 (classic getopt) → `z-args/getopt`
 
-- **Alcance real:** totalmente portable y con valor real, porque Zig **no trae `getopt` en su stdlib**. Reimplementarlo puro-Zig (permutación de `argv`, `--` como terminador, agrupamiento de flags cortas `-abc`) sirve tanto como opción standalone (portar herramientas C 1:1) como base interna para los tiers superiores.
-- **Boceto:**
+- **Real-world scope:** fully portable and genuinely valuable, since Zig **doesn't ship `getopt` in its stdlib**. Reimplementing it in pure Zig (argv permutation, `--` as a terminator, short-flag bundling `-abc`) is useful both as a standalone option (porting C tools 1:1) and as an internal base for the higher tiers.
+- **Sketch:**
   ```zig
   pub const Getopt = struct {
       args: [][:0]const u8,
@@ -538,99 +538,99 @@ Todo el código base parte de `std.process.Init` (Zig 0.16, "Juicy Main"): `init
       optarg: ?[:0]const u8 = null,
 
       pub fn next(self: *Getopt) ?u8 {
-          // misma semántica que getopt() de libc, sin variables globales
+          // same semantics as libc's getopt(), no global variables
       }
   };
   ```
-- **Conclusión:** escalón "estándar POSIX sin sorpresas". Bajo esfuerzo de implementación, cero dependencias, pero hereda las mismas limitaciones que en C: sin tipos, sin ayuda auto-generada, sin subcomandos.
+- **Conclusion:** the "standard POSIX, no surprises" rung. Low implementation effort, zero dependencies, but inherits the same limitations as in C: no types, no auto-generated help, no subcommands.
 
-### Tier 2 — Patrones #2 + #3 fusionados (builder runtime) → `z-args/builder`
+### Tier 2 — Patterns #2 + #3 merged (runtime builder) → `z-args/builder`
 
-- **Alcance real:** en C++ el patrón #2 son métodos encadenados y en C el #3 son funciones libres (`add_arg`) sobre una tabla; esa distinción OOP-vs-procedural **desaparece en Zig**, donde `s.method()` es azúcar sintáctica sobre `Struct.method(&s)`. Un único diseño runtime (una lista de `Option` poblada dinámicamente) cubre ambos patrones a la vez.
-- **Boceto:**
+- **Real-world scope:** in C++, pattern #2 is chained methods, and in C, #3 is free functions (`add_arg`) over a table; that OOP-vs-procedural distinction **disappears in Zig**, where `s.method()` is sugar over `Struct.method(&s)`. A single runtime design (a dynamically populated list of `Option`) covers both patterns at once.
+- **Sketch:**
   ```zig
   var parser = z_args.Builder.init(gpa);
   defer parser.deinit();
-  try parser.addFlag(.{ .short = 'v', .long = "verbose", .help = "modo verbose" });
+  try parser.addFlag(.{ .short = 'v', .long = "verbose", .help = "verbose mode" });
   try parser.addOption(.{ .short = 'o', .long = "output", .value_name = "FILE" });
   const result = try parser.parse(args);
   if (result.flag("verbose")) { ... }
   ```
-- **Conclusión:** primer escalón donde tiene sentido enganchar **validación cruzada entre flags** — exactamente el punto donde `arg.h` se queda corto en tu ejemplo motivador. El `.parse()` devuelve un resultado completo sobre el que se pueden expresar reglas tipo `.requires("output", "verbose")` o `.conflictsWith(...)` antes de entregarlo. Costo: los getters son por nombre de string (`result.flag("verbose")`), sin chequeo de tipos en compilación — igual que `cargs` en C.
+- **Conclusion:** the first rung where it makes sense to hook in **cross-flag validation** — exactly the point where `arg.h` falls short in the motivating example. `.parse()` returns a complete result over which rules like `.requires("output", "verbose")` or `.conflictsWith(...)` can be expressed before it's handed off. Cost: getters are by string name (`result.flag("verbose")`), with no compile-time type checking — same as `cargs` in C.
 
-### Tier 3 — Patrón #5 (DSL de texto en comptime) → `z-args/dsl`
+### Tier 3 — Pattern #5 (comptime text DSL) → `z-args/dsl`
 
-- **Alcance real:** terreno nativo de Zig — comptime string parsing es exactamente lo que hace `zig-clap` hoy, y Zig lo soporta sin pérdida de fidelidad respecto al patrón original.
-- **Boceto:**
+- **Real-world scope:** native Zig territory — comptime string parsing is exactly what `zig-clap` does today, and Zig supports it with no loss of fidelity relative to the original pattern.
+- **Sketch:**
   ```zig
   const params = comptime z_args.parseParamsComptime(
-      \\-h, --help             Muestra ayuda.
-      \\-v, --verbose          Modo verbose.
-      \\-o, --output <str>     Archivo de salida.
+      \\-h, --help             Show help.
+      \\-v, --verbose          Verbose mode.
+      \\-o, --output <str>     Output file.
   );
   const res = try z_args.parseComptime(&params, gpa, args);
   ```
-- **Conclusión:** escalón "compacto y auto-documentado" (el texto de ayuda y la especificación son la misma fuente). El costo es el mismo que en el original: el DSL es un mini-lenguaje aparte con su propia sintaxis y sus propios errores, menos ergonómico de depurar que un error de tipo Zig normal.
+- **Conclusion:** the "compact and self-documenting" rung (the help text and the specification are the same source). The cost is the same as in the original: the DSL is a separate mini-language with its own syntax and its own errors, less ergonomic to debug than a normal Zig type error.
 
-### Tier 4 — Patrón #6 (struct/reflection declarativo) → `z-args/declarative`
+### Tier 4 — Pattern #6 (declarative struct/reflection) → `z-args/declarative`
 
-- **Alcance real:** factible vía `@typeInfo(T)` sobre un struct definido por el usuario, evaluado en comptime — lo que hace `zig-args` hoy. **Pero hay una limitación real de lenguaje que no tiene equivalente directo**: a diferencia de Rust (`#[derive(Parser)]` + `#[arg(short, long)]`) o Java/C# (anotaciones/atributos sobre el campo), **Zig no tiene un sistema de atributos adjuntables a un campo de struct**. No existe forma de escribir algo como `@[short('v')] verbose: bool`. Hay dos estrategias reales para resolverlo, ambas usadas en la práctica:
-  1. **Struct "meta" paralelo** (lo que hace `zig-args`): junto al struct de datos se declara un `const meta = .{ .verbose = .{ .short = 'v', .help = "..." } };` que la librería cruza con `@typeInfo` del struct principal. Riesgo: dos declaraciones que hay que mantener sincronizadas a mano.
-  2. **Tipos wrapper genéricos por campo**: en vez de `verbose: bool`, escribir `verbose: z_args.Flag(bool, .{ .short = 'v', .help = "..." })`, empaquetando la metadata *dentro del tipo* — algo que Zig permite de forma más directa que Rust/Java gracias a los tipos genéricos parametrizados por valores comptime (`fn Flag(comptime T: type, comptime opts: FlagOpts) type`).
-  - **Boceto (estrategia 2, más idiomática en Zig porque evita sincronizar dos declaraciones):**
+- **Real-world scope:** feasible via `@typeInfo(T)` over a user-defined struct, evaluated at comptime — what `zig-args` does today. **But there's a real language limitation with no direct equivalent**: unlike Rust (`#[derive(Parser)]` + `#[arg(short, long)]`) or Java/C# (annotations/attributes on the field), **Zig has no system of attributes attachable to a struct field**. There's no way to write something like `@[short('v')] verbose: bool`. There are two real strategies to work around this, both used in practice:
+  1. **Parallel "meta" struct** (what `zig-args` does): alongside the data struct, a `const meta = .{ .verbose = .{ .short = 'v', .help = "..." } };` is declared, which the library cross-references with `@typeInfo` of the main struct. Risk: two declarations that must be kept in sync by hand.
+  2. **Generic per-field wrapper types**: instead of `verbose: bool`, write `verbose: z_args.Flag(bool, .{ .short = 'v', .help = "..." })`, packing the metadata *inside the type itself* — something Zig allows more directly than Rust/Java thanks to generic types parameterized by comptime values (`fn Flag(comptime T: type, comptime opts: FlagOpts) type`).
+  - **Sketch (strategy 2, more idiomatic in Zig since it avoids syncing two declarations):**
     ```zig
     const Cli = struct {
-        verbose: z_args.Flag(bool, .{ .short = 'v', .help = "modo verbose" }) = .{ .value = false },
+        verbose: z_args.Flag(bool, .{ .short = 'v', .help = "verbose mode" }) = .{ .value = false },
         output: z_args.Flag([]const u8, .{ .short = 'o', .default = "a.out" }) = .{ .value = "a.out" },
     };
     const cli = try z_args.parseStruct(Cli, gpa, args);
     if (cli.verbose.value) { ... }
     ```
-- **Conclusión:** el escalón más idiomático (autocompletado del IDE, refactor seguro, tipos verificados en compilación) y el que **más diseño propio exige** en Zig, precisamente porque hay que inventar el mecanismo de metadata que en otros lenguajes viene gratis con anotaciones. Esto debe documentarse como decisión de diseño explícita de `z-args`, no como detalle menor de implementación.
+- **Conclusion:** the most idiomatic rung (IDE autocomplete, safe refactoring, compile-time-checked types) and the one that **demands the most original design** in Zig, precisely because the metadata mechanism that comes free with annotations in other languages has to be invented here. This should be documented as an explicit `z-args` design decision, not a minor implementation detail.
 
-### Patrón #4 (X-Macros) → no se traduce, queda absorbido por el Tier 4
+### Pattern #4 (X-Macros) → doesn't get its own port, absorbed into Tier 4
 
-- **Alcance real:** el valor de X-Macros — una sola fuente de verdad que genera struct + parseo + ayuda a la vez — es exactamente lo que el patrón #6 ya logra en un lenguaje con comptime real, sin necesidad de trucos de token-pasting de preprocesador. Zig no tiene macros de texto, así que reproducir X-Macros tal cual no es posible ni deseable.
-- **Conclusión:** no amerita un tier propio en `z-args`; se documenta como "ya resuelto por el Tier 4" en vez de reimplementarse.
+- **Real-world scope:** the value of X-Macros — a single source of truth generating struct + parsing + help at once — is exactly what pattern #6 already achieves in a language with real comptime, with no need for preprocessor token-pasting tricks. Zig has no text macros, so reproducing X-Macros as-is is neither possible nor desirable.
+- **Conclusion:** doesn't warrant its own tier in `z-args`; documented as "already solved by Tier 4" rather than reimplemented.
 
-### Patrón #8 (subcomandos en árbol) → `z-args/commands` (capa compositiva ortogonal)
+### Pattern #8 (command/subcommand tree) → `z-args/commands` (orthogonal compositional layer)
 
-- **Alcance real:** totalmente factible, pero **no es un tier de parsing propio** sino una capa que envuelve cualquiera de los Tier 2 o Tier 4 como "hoja" de cada subcomando. Un `Command` es un nodo con nombre + parser (builder o struct declarativo) + lista de sub-`Command`s.
-- **Boceto:**
+- **Real-world scope:** fully feasible, but **not a parsing tier of its own** — rather a layer that wraps either Tier 2 or Tier 4 as each subcommand's "leaf". A `Command` is a node with a name + parser (builder or declarative struct) + a list of sub-`Command`s.
+- **Sketch:**
   ```zig
-  var root = z_args.Command.init(gpa, "miapp");
+  var root = z_args.Command.init(gpa, "myapp");
   defer root.deinit();
   var commit = try root.addSubcommand("commit");
   try commit.args.addOption(.{ .short = 'm', .long = "message" });
-  const invocation = try root.parse(args); // resuelve "miapp commit -m '...'"
+  const invocation = try root.parse(args); // resolves "myapp commit -m '...'"
   ```
-- **Conclusión:** se ofrece como módulo independiente y composable, no como escalón de complejidad de parsing en sí — igual que en `clap`, `picocli` o `System.CommandLine`, donde subcomandos se monta *sobre* el builder o el declarativo, nunca reemplaza al motor de parsing de hojas.
+- **Conclusion:** offered as an independent, composable module, not as a parsing-complexity rung in itself — same as in `clap`, `picocli`, or `System.CommandLine`, where subcommands are mounted *on top of* the builder or the declarative engine, never replacing the leaf parsing engine.
 
-### Escalera final propuesta para `z-args`
+### Final proposed ladder for `z-args`
 
-**Reformulación clave (post-research):** el objetivo no es portar la sintaxis exacta de una librería puntual, sino clasificar por **alcance funcional** — qué resuelve cada categoría, no cómo luce su API — y darle un nombre propio, independiente de cualquier librería de origen. La validación de que esto es un concepto real y no una idea inventada para este proyecto: **Nim y Crystal son, de los lenguajes relevados, los dos únicos con un ecosistema "maduro" que cubre la escalera completa dentro de un mismo lenguaje** (no una librería aislada) — `std/parseopt` → `cligen` en Nim, `OptionParser` → `admiral.cr` en Crystal. Eso fija los nombres y el alcance de cada categoría; el patrón numerado (#1-#8) de las secciones anteriores queda como research de respaldo, no como la taxonomía final.
+**Key reformulation (post-research):** the goal isn't to port the exact syntax of one particular library, but to classify by **functional scope** — what each category solves, not what its API looks like — and give it its own name, independent of any originating library. The validation that this is a real concept and not something invented for this project: **of the languages surveyed, Nim and Crystal are the only two with a "mature" ecosystem covering the full ladder within a single language** (not an isolated library) — `std/parseopt` → `cligen` in Nim, `OptionParser` → `admiral.cr` in Crystal. That's what fixes each category's name and scope; the numbered pattern (#1-#8) from the earlier sections stands as supporting research, not as the final taxonomy.
 
-| Categoría | Alcance | Referencia (ecosistema maduro) | Cuándo se vuelve insuficiente |
+| Category | Scope | Reference (mature ecosystem) | When it becomes insufficient |
 |---|---|---|---|
-| **Simple** | Tokenizador de flags cortas/largas estilo POSIX/GNU `getopt_long`. Sin tipos, sin ayuda auto-generada, sin validación cruzada entre flags. | Nim `std/parseopt` | Cuando se necesitan tipos, ayuda auto-generada o validación entre flags más allá de lo que POSIX define. |
-| **Builder** | Registro imperativo en runtime, ayuda auto-generada, lugar para validación cruzada (`requires`, `conflictsWith`). Acceso a resultados por nombre (string-keyed), sin chequeo de tipos en compilación. | Crystal `OptionParser` | Cuando se prefiere que el propio struct del programa sea la única fuente de verdad (sin getters por string) y se quiere chequeo de tipos en compilación. |
-| **Declarative** | La fuente de verdad es un tipo/firma del lenguaje (struct o función), generado en tiempo de compilación: tipos verificados, mínimo boilerplate. Techo de madurez de un solo comando. | Nim `cligen`, Crystal `admiral.cr` | Rara vez — lo próximo es escalar a subcomandos. |
-| **Commands** (ortogonal) | Árbol de subcomandos, compone sobre Builder o Declarative como "hoja". No es un escalón de complejidad de parsing, es un eje aparte. | `admiral.cr` (`define_command`), `cobra` | N/A |
+| **Simple** | POSIX/GNU `getopt_long`-style short/long flag tokenizer. No types, no auto-generated help, no cross-flag validation. | Nim `std/parseopt` | When types, auto-generated help, or cross-flag validation are needed beyond what POSIX defines. |
+| **Builder** | Imperative runtime registration, auto-generated help, room for cross-flag validation (`requires`, `conflictsWith`). Results accessed by name (string-keyed), no compile-time type checking. | Crystal `OptionParser` | When the program's own struct should be the single source of truth (no string getters) and compile-time type checking is wanted. |
+| **Declarative** | The source of truth is a language type/signature (struct or function), generated at compile time: type-checked, minimal boilerplate. The maturity ceiling for a single command. | Nim `cligen`, Crystal `admiral.cr` | Rarely — the next step is scaling to subcommands. |
+| **Commands** (orthogonal) | Subcommand tree, composes over Builder or Declarative as a "leaf". Not a parsing-complexity rung, a separate axis. | `admiral.cr` (`define_command`), `cobra` | N/A |
 
-**Se descarta "Raw" como categoría propia**: iterar `argv` a mano sin ninguna librería es lo que cualquier lenguaje ofrece por defecto — no es algo que `z-args` deba empaquetar ni nombrar, es la ausencia de la librería, no un escalón de ella.
+**"Raw" is dropped as its own category**: iterating `argv` by hand with no library at all is what any language offers by default — it's not something `z-args` should package or name, it's the absence of the library, not a rung of it.
 
-**El DSL de texto en comptime (`zig-clap`) queda degradado a variante opcional/bonus**, no parte del núcleo de la escalera: ni Nim ni Crystal — los dos ecosistemas de referencia — tienen ese escalón: ninguno de los dos resuelve su rango "medio" con un mini-lenguaje de texto aparte.
+**The comptime text DSL (`zig-clap`) is demoted to an optional/bonus variant**, not part of the ladder's core: neither Nim nor Crystal — the two reference ecosystems — has that rung: neither solves its "middle" range with a separate text mini-language.
 
-**Caso de estudio — por qué se clasifica por alcance funcional y no por sintaxis superficial (`argh`, C++):** `argh` parece un Builder porque es un objeto que se consulta con métodos (`cmdl[{"-v","--verbose"}]`), pero funcionalmente no cumple ninguno de los dos rasgos que definen Builder: no genera `--help`, y no hay schema al cual atar validación cruzada (no existe paso de registro previo — parsea `argv` de forma genérica y recién después se consulta qué apareció). Por alcance real, `argh` cae en **Simple**: comparte con `getopt` la ausencia total de ayuda/validación, solo que con una API de consulta más cómoda (alias múltiples, cast por tipo) que el `switch` clásico de C. Moraleja: un objeto con métodos no es automáticamente Builder — lo que define la categoría es qué resuelve, no la forma en que se invoca.
+**Case study — why classification is by functional scope and not surface syntax (`argh`, C++):** `argh` looks like a Builder because it's an object queried with methods (`cmdl[{"-v","--verbose"}]`), but functionally it satisfies neither of the two traits that define Builder: it doesn't generate `--help`, and there's no schema to attach cross-flag validation to (there's no upfront registration step — it parses `argv` generically and only afterward do you query what showed up). By real scope, `argh` lands in **Simple**: it shares with `getopt` the total absence of help/validation, just with a more convenient query API (multiple aliases, type casting) than C's classic `switch`. Moral: an object with methods isn't automatically a Builder — what defines the category is what it solves, not how it's invoked.
 
-La recomendación de diseño de empaquetado: un único módulo raíz `zargs` (no módulos separados por tier vía `build.zig.zon`) — Zig solo genera código para las declaraciones referenciadas, así que `zargs.Simple` no paga el costo de compilación de `Builder`/`Declarative` aunque convivan en el mismo módulo. Esto además matchea la convención de todos los repos hermanos del ecosistema `z-*` (`z-array`, `z-number`, `z-temporal`, ...): un repo, un módulo raíz.
+The packaging design recommendation: a single root module `zargs` (not separate per-tier modules via `build.zig.zon`) — Zig only generates code for referenced declarations, so `zargs.Simple` doesn't pay the compilation cost of `Builder`/`Declarative` even though they live in the same module. This also matches the convention of every sibling repo in the `z-*` ecosystem (`z-array`, `z-number`, `z-temporal`, ...): one repo, one root module.
 
-**Estado de implementación**: `Simple` está implementado (`src/simple.zig`, `src/process.zig`), ground-truthed contra `getopt_long(3)` real. `Builder`, `Declarative` y `Commands` siguen siendo solo research — cada uno espera su propia sesión de diseño e implementación.
+**Implementation status**: `Simple` is implemented (`src/simple.zig`, `src/process.zig`), ground-truthed against real `getopt_long(3)`. `Builder`, `Declarative`, and `Commands` are still research-only — each awaits its own design and implementation session.
 
-## Notas rápidas
+## Quick notes
 
-- Para C con foco en tamaño mínimo (estilo suckless): patrón **#1**.
-- Para C con necesidad de tipos y ayuda automática sin C++: patrón **#3**.
-- Para Zig, la disyuntiva típica es **#5 (zig-clap)** vs **#6 (zig-args)**: DSL de texto vs struct nativo.
-- Para C++ moderno sin dependencias externas: patrón **#2**.
-- Para CLIs grandes con subcomandos: patrón **#8**, normalmente montado sobre **#2** o **#6**.
+- For C focused on minimal size (suckless style): pattern **#1**.
+- For C needing types and automatic help without C++: pattern **#3**.
+- For Zig, the typical tradeoff is **#5 (zig-clap)** vs. **#6 (zig-args)**: text DSL vs. native struct.
+- For modern C++ with no external dependencies: pattern **#2**.
+- For large CLIs with subcommands: pattern **#8**, usually mounted on **#2** or **#6**.
