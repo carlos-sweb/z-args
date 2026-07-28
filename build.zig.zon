@@ -1,0 +1,14 @@
+.{
+    .name = .zargs,
+    .version = "0.1.0",
+    .minimum_zig_version = "0.16.0",
+    .fingerprint = 0x421ffecd387bf43e,
+    .description = "Command-line argument parsing for Zig as a ladder of complexity -- Simple (POSIX/GNU tokenizer), Builder, Declarative, and Commands tiers, each importable on its own",
+    .paths = .{
+        "build.zig",
+        "build.zig.zon",
+        "src/",
+        "README.md",
+    },
+    .dependencies = .{},
+}

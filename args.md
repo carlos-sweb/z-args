@@ -608,17 +608,24 @@ Todo el código base parte de `std.process.Init` (Zig 0.16, "Juicy Main"): `init
 
 ### Escalera final propuesta para `z-args`
 
-| Tier | Patrón(es) de origen | Módulo | Nivel | Cuándo se vuelve insuficiente |
-|---|---|---|---|---|
-| 0 | #1 (arg.h) | *(sin librería, solo helper `ArgIter`)* | Trivial | En cuanto una flag depende del valor de otra: no hay dónde enganchar validación cruzada sin escribirla a mano después del `switch`. |
-| 1 | #7 (getopt) | `z-args/getopt` | Bajo | Cuando se necesitan tipos, ayuda auto-generada o flags largas ergonómicas más allá de lo que POSIX define. |
-| 2 | #2 + #3 (builder) | `z-args/builder` | Medio | Cuando se prefiere que el propio struct del programa sea la única fuente de verdad (sin getters por string) y se quiere chequeo de tipos en compilación. |
-| 3 | #5 (DSL comptime) | `z-args/dsl` | Medio-alto | Cuando el "mini-lenguaje" del DSL de texto empieza a estorbar más de lo que ahorra, o se necesita metadata rica por campo (validadores custom, tipos complejos). |
-| 4 | #6 (declarativo) | `z-args/declarative` | Alto | Rara vez — es el techo de expresividad de parsing de una sola línea de comandos; lo próximo es escalar a subcomandos. |
-| — (ortogonal) | #8 (árbol) | `z-args/commands` | Se combina con Tier 2 o 4 | N/A — es un eje de composición, no de complejidad de parsing. |
-| — (absorbido) | #4 (X-Macros) | *(no se implementa; cubierto por Tier 4)* | — | — |
+**Reformulación clave (post-research):** el objetivo no es portar la sintaxis exacta de una librería puntual, sino clasificar por **alcance funcional** — qué resuelve cada categoría, no cómo luce su API — y darle un nombre propio, independiente de cualquier librería de origen. La validación de que esto es un concepto real y no una idea inventada para este proyecto: **Nim y Crystal son, de los lenguajes relevados, los dos únicos con un ecosistema "maduro" que cubre la escalera completa dentro de un mismo lenguaje** (no una librería aislada) — `std/parseopt` → `cligen` en Nim, `OptionParser` → `admiral.cr` en Crystal. Eso fija los nombres y el alcance de cada categoría; el patrón numerado (#1-#8) de las secciones anteriores queda como research de respaldo, no como la taxonomía final.
 
-La recomendación de diseño es que `z-args` no sea una única librería monolítica sino un **paquete de módulos independientes** bajo un mismo namespace (`z-args/getopt`, `z-args/builder`, `z-args/dsl`, `z-args/declarative`, `z-args/commands`), cada uno importable por separado vía `build.zig.zon`, de forma que el costo de compilación y la superficie de API que paga el usuario final sea exactamente la del tier que eligió — nunca la de un framework completo si solo necesita un `getopt`.
+| Categoría | Alcance | Referencia (ecosistema maduro) | Cuándo se vuelve insuficiente |
+|---|---|---|---|
+| **Simple** | Tokenizador de flags cortas/largas estilo POSIX/GNU `getopt_long`. Sin tipos, sin ayuda auto-generada, sin validación cruzada entre flags. | Nim `std/parseopt` | Cuando se necesitan tipos, ayuda auto-generada o validación entre flags más allá de lo que POSIX define. |
+| **Builder** | Registro imperativo en runtime, ayuda auto-generada, lugar para validación cruzada (`requires`, `conflictsWith`). Acceso a resultados por nombre (string-keyed), sin chequeo de tipos en compilación. | Crystal `OptionParser` | Cuando se prefiere que el propio struct del programa sea la única fuente de verdad (sin getters por string) y se quiere chequeo de tipos en compilación. |
+| **Declarative** | La fuente de verdad es un tipo/firma del lenguaje (struct o función), generado en tiempo de compilación: tipos verificados, mínimo boilerplate. Techo de madurez de un solo comando. | Nim `cligen`, Crystal `admiral.cr` | Rara vez — lo próximo es escalar a subcomandos. |
+| **Commands** (ortogonal) | Árbol de subcomandos, compone sobre Builder o Declarative como "hoja". No es un escalón de complejidad de parsing, es un eje aparte. | `admiral.cr` (`define_command`), `cobra` | N/A |
+
+**Se descarta "Raw" como categoría propia**: iterar `argv` a mano sin ninguna librería es lo que cualquier lenguaje ofrece por defecto — no es algo que `z-args` deba empaquetar ni nombrar, es la ausencia de la librería, no un escalón de ella.
+
+**El DSL de texto en comptime (`zig-clap`) queda degradado a variante opcional/bonus**, no parte del núcleo de la escalera: ni Nim ni Crystal — los dos ecosistemas de referencia — tienen ese escalón: ninguno de los dos resuelve su rango "medio" con un mini-lenguaje de texto aparte.
+
+**Caso de estudio — por qué se clasifica por alcance funcional y no por sintaxis superficial (`argh`, C++):** `argh` parece un Builder porque es un objeto que se consulta con métodos (`cmdl[{"-v","--verbose"}]`), pero funcionalmente no cumple ninguno de los dos rasgos que definen Builder: no genera `--help`, y no hay schema al cual atar validación cruzada (no existe paso de registro previo — parsea `argv` de forma genérica y recién después se consulta qué apareció). Por alcance real, `argh` cae en **Simple**: comparte con `getopt` la ausencia total de ayuda/validación, solo que con una API de consulta más cómoda (alias múltiples, cast por tipo) que el `switch` clásico de C. Moraleja: un objeto con métodos no es automáticamente Builder — lo que define la categoría es qué resuelve, no la forma en que se invoca.
+
+La recomendación de diseño de empaquetado: un único módulo raíz `zargs` (no módulos separados por tier vía `build.zig.zon`) — Zig solo genera código para las declaraciones referenciadas, así que `zargs.Simple` no paga el costo de compilación de `Builder`/`Declarative` aunque convivan en el mismo módulo. Esto además matchea la convención de todos los repos hermanos del ecosistema `z-*` (`z-array`, `z-number`, `z-temporal`, ...): un repo, un módulo raíz.
+
+**Estado de implementación**: `Simple` está implementado (`src/simple.zig`, `src/process.zig`), ground-truthed contra `getopt_long(3)` real. `Builder`, `Declarative` y `Commands` siguen siendo solo research — cada uno espera su propia sesión de diseño e implementación.
 
 ## Notas rápidas
 
