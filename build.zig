@@ -13,6 +13,8 @@ pub fn build(b: *std.Build) void {
     const test_files = [_][]const u8{
         "tests/simple_test.zig",
         "tests/builder_test.zig",
+        "tests/declarative_test.zig",
+        "tests/commands_test.zig",
     };
 
     inline for (test_files) |test_file| {

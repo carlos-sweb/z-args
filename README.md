@@ -190,9 +190,175 @@ pub fn main() !void {
 
 Short-option bundles (`-vofile.txt`, or `-vo file.txt`) are validated as a whole before anything in them is applied — an unrecognized character fails the entire token, not just that one flag, unlike `Simple`'s per-character continuation. See `src/builder.zig`'s file docs for the full ground-truthed rationale (including the one place this tier deliberately diverges from real Crystal `OptionParser`'s observed behavior).
 
+### `Declarative`: your own struct is the parser, parsing the process's real `argv`
+
+Unlike `Builder`'s stringly-keyed `Result`, `Declarative.parseStruct` returns the caller's own struct, fully populated and type-checked — each field is wrapped in `Declarative.Flag(T, opts)` or `Declarative.Positional(T, opts)`, which carries its short/long spelling, help text, and default (`null` means required) inside the type itself, since Zig has no field-attribute mechanism to hang that metadata on separately:
+
+```shell
+$ ./myprogram --verbose --retries=5 --output=out.txt input.txt
+```
+
+```zig
+const std = @import("std");
+const zargs = @import("zargs");
+const Declarative = zargs.Declarative;
+
+const Cli = struct {
+    verbose: Declarative.Flag(bool, .{ .short = 'v', .long = "verbose", .help = "Verbose mode", .default = false }),
+    retries: Declarative.Flag(u32, .{ .short = 'r', .long = "retries", .help = "Retry count", .default = 3 }),
+    output: Declarative.Flag([]const u8, .{ .short = 'o', .long = "output", .help = "Output file" }),
+    input: Declarative.Positional([]const u8, .{ .help = "Input file" }),
+};
+
+pub fn main(init: std.process.Init) !u8 {
+    var it = std.process.Args.Iterator.init(init.minimal.args);
+    const args = try zargs.collectProcessArgs(init.gpa, &it);
+    defer init.gpa.free(args);
+
+    var diag: Declarative.Diagnostics = .{};
+    const cli = Declarative.parseStruct(Cli, init.gpa, args, &diag) catch |err| {
+        const usage = try Declarative.usageAlloc(Cli, init.gpa, "Usage: myprogram [options] <input>");
+        defer init.gpa.free(usage);
+        std.debug.print("error: {s}\n\n{s}", .{ @errorName(err), usage });
+        return 1;
+    };
+
+    if (cli.verbose.value) std.debug.print("verbose mode\n", .{});
+    std.debug.print("retries: {d}\n", .{cli.retries.value});
+    std.debug.print("output: {s}\n", .{cli.output.value});
+    std.debug.print("input: {s}\n", .{cli.input.value});
+
+    return 0;
+}
+```
+
+`cli.retries.value` is a real `u32`, not a string to parse yourself — that's this tier's actual payoff over `Builder`. A missing required field (here, `output`) is `error.MissingRequiredFlag`/`error.MissingRequiredPositional`, with `diag.field` naming which one; `Declarative.usageAlloc` needs no runtime registration step to render, since everything is already known from the struct's type at compile time.
+
+### `Declarative`: registering options and parsing a literal `argv` (e.g. for testing flags)
+
+```zig
+const std = @import("std");
+const zargs = @import("zargs");
+const Declarative = zargs.Declarative;
+
+const Cli = struct {
+    verbose: Declarative.Flag(bool, .{ .short = 'v', .long = "verbose", .default = false }),
+    output: Declarative.Flag([]const u8, .{ .short = 'o', .long = "output" }),
+    input: Declarative.Positional([]const u8, .{}),
+    extra: Declarative.Positional([]const []const u8, .{}), // rest-collector, see below
+};
+
+pub fn main() !void {
+    const allocator = std.heap.page_allocator;
+    const args = [_][:0]const u8{ "-v", "--output=out.txt", "input.txt", "extra1", "extra2" };
+    const cli = try Declarative.parseStruct(Cli, allocator, &args, null);
+    defer allocator.free(cli.extra.value);
+    // cli.verbose.value == true, cli.output.value == "out.txt"
+    // cli.input.value == "input.txt", cli.extra.value == &.{ "extra1", "extra2" }
+}
+```
+
+A `Declarative.Positional([]const []const u8, opts)` field is a rest-collector: it absorbs every positional left over after the fixed ones (here, `extra1`/`extra2` beyond `input`), must be the last `Positional` field in the struct, and its slice is caller-owned — free it the same way as `cli.extra.value` above. Every other misuse (a field not wrapped in `Flag`/`Positional`, a rest-collector that isn't last, a required positional after an optional one) is a `@compileError`, not a runtime surprise — see `src/declarative.zig`'s file docs for the full ground-truthed rationale, including the one place this tier deliberately diverges from real Crystal `admiral.cr`'s observed behavior.
+
+### `Commands`: a subcommand tree, composing over `Builder` and `Declarative` as leaves
+
+Unlike the first three rungs, `Commands` isn't a parsing-complexity tier of its own — it's an orthogonal subcommand tree, declared as a plain static literal, that routes `argv` down to a leaf `action` callback. Each leaf is free to parse its own remaining args with whichever tier fits it best:
+
+```shell
+$ ./myapp remote add origin https://example.com
+$ ./myapp clean --force
+```
+
+```zig
+const std = @import("std");
+const zargs = @import("zargs");
+const Commands = zargs.Commands;
+const Builder = zargs.Builder;
+const Declarative = zargs.Declarative;
+
+const AddCli = struct {
+    name: Declarative.Positional([]const u8, .{ .help = "Remote name" }),
+    url: Declarative.Positional([]const u8, .{ .help = "Remote URL" }),
+};
+
+fn remoteAdd(allocator: std.mem.Allocator, args: []const [:0]const u8) anyerror!void {
+    const cli = try Declarative.parseStruct(AddCli, allocator, args, null);
+    std.debug.print("added remote {s} -> {s}\n", .{ cli.name.value, cli.url.value });
+}
+
+fn clean(allocator: std.mem.Allocator, args: []const [:0]const u8) anyerror!void {
+    var parser = Builder.Parser.init(allocator);
+    defer parser.deinit();
+    try parser.addFlag(.{ .name = "force", .short = 'f', .long = "force", .help = "Skip confirmation" });
+    var result = try parser.parse(allocator, args, null);
+    defer result.deinit(allocator);
+    std.debug.print("clean (force={})\n", .{result.flag("force")});
+}
+
+const root = Commands.Command{
+    .name = "myapp",
+    .children = &[_]Commands.Command{
+        .{
+            .name = "remote",
+            .help = "Manage remotes",
+            .children = &[_]Commands.Command{
+                .{ .name = "add", .help = "Add a remote", .action = remoteAdd },
+            },
+        },
+        .{ .name = "clean", .help = "Clean the workspace", .action = clean },
+    },
+};
+
+pub fn main(init: std.process.Init) !u8 {
+    var it = std.process.Args.Iterator.init(init.minimal.args);
+    const args = try zargs.collectProcessArgs(init.gpa, &it);
+    defer init.gpa.free(args);
+
+    Commands.dispatch(root, init.gpa, args) catch |err| {
+        const usage = try Commands.usageAlloc(root, init.gpa, "Usage: myapp <command> [options]");
+        defer init.gpa.free(usage);
+        std.debug.print("error: {s}\n\n{s}", .{ @errorName(err), usage });
+        return 1;
+    };
+
+    return 0;
+}
+```
+
+`remote add` is a two-level route (`remote` is a pure branch, no `action` of its own) resolved with a `Declarative` leaf; `clean` is a one-level route resolved with a `Builder` leaf — real composition over either tier from the same tree, not a unified generic mechanism. `Commands.dispatch` matches `args[0]` against child names/aliases directly (ground-truthed from Crystal `admiral.cr`'s `@argv[0]?` check) rather than scanning past flags to find the next subcommand-shaped token the way Go's `cobra` does — a deliberate, documented divergence; see `src/commands.zig`'s file docs for the full rationale.
+
+### `Commands`: dispatching against a literal `argv` (e.g. for testing a leaf in isolation)
+
+```zig
+const std = @import("std");
+const zargs = @import("zargs");
+const Commands = zargs.Commands;
+
+fn status(allocator: std.mem.Allocator, args: []const [:0]const u8) anyerror!void {
+    _ = allocator;
+    _ = args;
+    std.debug.print("status: clean\n", .{});
+}
+
+const root = Commands.Command{
+    .name = "myapp",
+    .children = &[_]Commands.Command{
+        .{ .name = "status", .alias = "st", .help = "Show status", .action = status },
+    },
+};
+
+pub fn main() !void {
+    const allocator = std.heap.page_allocator;
+    const args = [_][:0]const u8{"st"};
+    try Commands.dispatch(root, allocator, &args);
+}
+```
+
+The tree itself (`root` above) is a plain comptime literal, not a runtime-registered object — there's no `deinit` for it, only for whatever a leaf's own `Builder`/`Declarative` call allocates internally.
+
 ## Current status
 
-**Simple** (`src/simple.zig`, `src/process.zig`) and **Builder** (`src/builder.zig`) are implemented and tested. `Simple` is a zero-allocation, zero-I/O flag tokenizer ground-truthed against real `getopt_long(3)` (bundling, attached/separate values, `=`-long options, `--`, non-fatal errors that let parsing continue). `Builder` is imperative registration + auto-generated usage text + cross-flag validation (`requires`/`conflicts`), ground-truthed against real Crystal `OptionParser` (both its compiled behavior and its stdlib source). `Declarative` and `Commands` are still research-only — each awaits its own design session before implementation, so this project doesn't repeat the problem that motivated it in the first place (starting simple and getting stuck with no next rung).
+All four taxonomy rows are implemented and tested. **Simple** (`src/simple.zig`, `src/process.zig`) is a zero-allocation, zero-I/O flag tokenizer ground-truthed against real `getopt_long(3)` (bundling, attached/separate values, `=`-long options, `--`, non-fatal errors that let parsing continue). **Builder** (`src/builder.zig`) is imperative registration + auto-generated usage text + cross-flag validation (`requires`/`conflicts`), ground-truthed against real Crystal `OptionParser` (both its compiled behavior and its stdlib source). **Declarative** (`src/declarative.zig`) is comptime `@typeInfo` reflection over the caller's own struct, ground-truthed against Crystal `admiral.cr`'s source and Nim `cligen`'s documented behavior -- including confirming, by reading Zig's own stdlib, that `cligen`'s function-signature-reflection approach has no Zig equivalent (function parameter names aren't preserved in Zig's type reflection), which is why this tier is struct-based. **Commands** (`src/commands.zig`) is a subcommand tree declared as a static literal, routing `argv[0]` down to a leaf callback that composes over `Builder` or `Declarative`, ground-truthed against Crystal `admiral.cr`'s source and Go `cobra`'s source -- deliberately following `admiral.cr`'s simpler direct-`argv[0]`-match model over `cobra`'s heavier flag-skipping search, documented as such.
 
 ## Target
 
