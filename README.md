@@ -31,6 +31,10 @@ The full detail of each category — justification, the reformulation from the i
 
 The only spot in this tier that touches an allocator — `zargs.collectProcessArgs` materializes the real `std.process.Init` iterator into the slice `Parser` expects:
 
+```shell
+$ ./myprogram --verbose --output=out.txt input.txt
+```
+
 ```zig
 const std = @import("std");
 const zargs = @import("zargs");
