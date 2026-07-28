@@ -625,7 +625,7 @@ The whole codebase starts from `std.process.Init` (Zig 0.16, "Juicy Main"): `std
 
 The packaging design recommendation: a single root module `zargs` (not separate per-tier modules via `build.zig.zon`) — Zig only generates code for referenced declarations, so `zargs.Simple` doesn't pay the compilation cost of `Builder`/`Declarative` even though they live in the same module. This also matches the convention of every sibling repo in the `z-*` ecosystem (`z-array`, `z-number`, `z-temporal`, ...): one repo, one root module.
 
-**Implementation status**: `Simple` is implemented (`src/simple.zig`, `src/process.zig`), ground-truthed against real `getopt_long(3)`. `Builder`, `Declarative`, and `Commands` are still research-only — each awaits its own design and implementation session.
+**Implementation status**: `Simple` (`src/simple.zig`, `src/process.zig`) is implemented, ground-truthed against real `getopt_long(3)`. `Builder` (`src/builder.zig`) is implemented too, ground-truthed against real Crystal `OptionParser` — both its compiled behavior and its stdlib source (`option_parser.cr`), including one deliberate divergence documented in the file: a bundled short option's missing value falls back to the next `argv` token (matching `Simple`'s rule) rather than Crystal's own silent empty-string, which looks like an oversight rather than a designed behavior. `Declarative` and `Commands` are still research-only — each awaits its own design and implementation session.
 
 ## Quick notes
 

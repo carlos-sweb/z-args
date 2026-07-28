@@ -121,9 +121,78 @@ pub fn main() !void {
 
 A bad flag (`.unknown_option`) doesn't abort the rest of the parse — just like real `getopt()`, each `.next()` call reports one problem at a time and keeps going, leaving the decision to abort or continue in the caller's hands.
 
+### `Builder`: registering options and parsing the process's real `argv`
+
+Unlike `Simple`, `Builder.Parser` runs the whole parse in one call and returns a `Result` queried by name — closer to real Crystal `OptionParser`, this tier's reference:
+
+```shell
+$ ./myprogram --verbose --output=out.txt input.txt
+```
+
+```zig
+const std = @import("std");
+const zargs = @import("zargs");
+const Builder = zargs.Builder;
+
+pub fn main(init: std.process.Init) !u8 {
+    var it = std.process.Args.Iterator.init(init.minimal.args);
+    const args = try zargs.collectProcessArgs(init.gpa, &it);
+    defer init.gpa.free(args);
+
+    var parser = Builder.Parser.init(init.gpa);
+    defer parser.deinit();
+    parser.setBanner("Usage: myprogram [options] [file]");
+    try parser.addFlag(.{ .name = "verbose", .short = 'v', .long = "verbose", .help = "Verbose mode" });
+    try parser.addOption(.{ .name = "output", .short = 'o', .long = "output", .help = "Output file", .value_name = "FILE" });
+    try parser.requires("output", "verbose");
+
+    var diag: Builder.Diagnostics = .{};
+    var result = parser.parse(init.gpa, args, &diag) catch |err| {
+        const usage = try parser.usageAlloc(init.gpa);
+        defer init.gpa.free(usage);
+        std.debug.print("error: {s}\n\n{s}", .{ @errorName(err), usage });
+        return 1;
+    };
+    defer result.deinit(init.gpa);
+
+    if (result.flag("verbose")) std.debug.print("verbose mode\n", .{});
+    if (result.option("output")) |out| std.debug.print("output: {s}\n", .{out});
+    for (result.positionals.items) |p| std.debug.print("file: {s}\n", .{p});
+
+    return 0;
+}
+```
+
+`requires("output", "verbose")` and its counterpart `.conflicts(a, b)` are cross-flag validation, checked once the whole `argv` has been walked — the exact rung `arg.h`-style manual `switch` parsing has nowhere to hook in (see "Why it exists" above). There's no callback-registration mechanism for reporting a bad option, unlike Crystal's `invalid_option`/`missing_option`: `parse()` returning `Builder.Error` and a plain `catch` already gives the same control with less API surface.
+
+### `Builder`: registering options and parsing a literal `argv` (e.g. for testing flags)
+
+```zig
+const std = @import("std");
+const zargs = @import("zargs");
+const Builder = zargs.Builder;
+
+pub fn main() !void {
+    const allocator = std.heap.page_allocator;
+    var parser = Builder.Parser.init(allocator);
+    defer parser.deinit();
+    try parser.addFlag(.{ .name = "verbose", .short = 'v', .long = "verbose", .help = "Verbose mode" });
+    try parser.addOption(.{ .name = "output", .short = 'o', .long = "output", .help = "Output file" });
+
+    const args = [_][:0]const u8{ "-v", "--output=out.txt", "input.txt" };
+    var result = try parser.parse(allocator, &args, null);
+    defer result.deinit(allocator);
+    // result.flag("verbose") == true
+    // result.option("output").? == "out.txt"
+    // result.positionals.items[0] == "input.txt"
+}
+```
+
+Short-option bundles (`-vofile.txt`, or `-vo file.txt`) are validated as a whole before anything in them is applied — an unrecognized character fails the entire token, not just that one flag, unlike `Simple`'s per-character continuation. See `src/builder.zig`'s file docs for the full ground-truthed rationale (including the one place this tier deliberately diverges from real Crystal `OptionParser`'s observed behavior).
+
 ## Current status
 
-**Simple** is implemented (`src/simple.zig`, `src/process.zig`) — a zero-allocation, zero-I/O flag tokenizer, ground-truthed against real `getopt_long(3)` (bundling, attached/separate values, `=`-long options, `--`, non-fatal errors that let parsing continue). `Builder`, `Declarative`, and `Commands` are still research-only — each awaits its own design session before implementation, so this project doesn't repeat the problem that motivated it in the first place (starting simple and getting stuck with no next rung).
+**Simple** (`src/simple.zig`, `src/process.zig`) and **Builder** (`src/builder.zig`) are implemented and tested. `Simple` is a zero-allocation, zero-I/O flag tokenizer ground-truthed against real `getopt_long(3)` (bundling, attached/separate values, `=`-long options, `--`, non-fatal errors that let parsing continue). `Builder` is imperative registration + auto-generated usage text + cross-flag validation (`requires`/`conflicts`), ground-truthed against real Crystal `OptionParser` (both its compiled behavior and its stdlib source). `Declarative` and `Commands` are still research-only — each awaits its own design session before implementation, so this project doesn't repeat the problem that motivated it in the first place (starting simple and getting stuck with no next rung).
 
 ## Target
 
