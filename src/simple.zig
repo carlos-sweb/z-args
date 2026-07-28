@@ -18,33 +18,64 @@
 //! after the options. Permutation is a heavier, higher-tier nicety.
 const std = @import("std");
 
+/// Whether an option is a presence/absence flag, or consumes a value (the
+/// rest of its short-option bundle, a `--long=value`, or the next argv
+/// token).
 pub const OptionKind = enum { flag, value };
 
+/// Registers one option's short and/or long spelling and whether it takes
+/// a value. Set both `short` and `long` to accept either spelling for the
+/// same option; leave the other `null` if it has only one form.
 pub const OptionSpec = struct {
+    /// e.g. `'v'` for `-v`.
     short: ?u8 = null,
+    /// e.g. `"verbose"` for `--verbose`.
     long: ?[]const u8 = null,
     kind: OptionKind = .flag,
 };
 
+/// One parsed unit of `argv`, returned one at a time by `Parser.next()`.
+/// Error conditions (`.unknown_option`, `.missing_value`,
+/// `.unexpected_value`) are variants here rather than a Zig error union:
+/// real `getopt()`-style parsing reports one bad option per call and keeps
+/// going rather than aborting the whole parse, and this mirrors that.
 pub const Token = union(enum) {
+    /// A registered `.kind = .flag` option was present (e.g. `-v`).
     flag: struct { short: ?u8, long: ?[]const u8 },
+    /// A registered `.kind = .value` option was present, with its value
+    /// (attached to a short bundle, `=`-joined to a long option, or taken
+    /// unconditionally from the next argv token).
     option: struct { short: ?u8, long: ?[]const u8, value: []const u8 },
+    /// A bare, non-flag argument -- or any token once `--` has been seen.
     positional: []const u8,
-    /// Neither `short` nor `long` is ever both-null; whichever form the
-    /// caller actually typed is the one that's populated.
+    /// A short or long option wasn't found in `specs`. Neither `short`
+    /// nor `long` is ever both-null; whichever form the caller actually
+    /// typed is the one that's populated.
     unknown_option: struct { short: ?u8, long: ?[]const u8 },
+    /// A `.kind = .value` option had no attached/`=` value and `argv` was
+    /// exhausted before a following token could supply one.
     missing_value: struct { short: ?u8, long: ?[]const u8 },
+    /// A `.kind = .flag` long option was given `--flag=value` -- flags
+    /// never take a value.
     unexpected_value: struct { short: ?u8, long: ?[]const u8, value: []const u8 },
+    /// No more args. Returned forever once reached, so it's always safe
+    /// to keep calling `next()`.
     end,
 };
 
 pub const Parser = struct {
+    /// The `argv` slice being walked -- `argv[0]` (the program name)
+    /// excluded, see `process.collect`.
     args: []const [:0]const u8,
+    /// The options this parser recognizes; anything else short/long
+    /// becomes `.unknown_option`.
     specs: []const OptionSpec,
     arg_index: usize = 0,
     /// >0 means mid short-option bundle, positioned at this byte offset
     /// into `args[arg_index]`.
     char_index: usize = 0,
+    /// Set once a bare `--` is seen; every remaining token becomes a
+    /// `.positional` from then on, even ones that look like flags.
     positional_only: bool = false,
 
     pub fn init(args: []const [:0]const u8, specs: []const OptionSpec) Parser {
@@ -83,6 +114,11 @@ pub const Parser = struct {
         return self.nextFromBundle();
     }
 
+    /// Resolves one character of a short-option bundle (`-abc`) at
+    /// `args[arg_index][char_index]`. A `.flag` char just advances one
+    /// position; a `.value` char consumes either the rest of the current
+    /// token (`-ofile.txt`) or, if none remains, the whole next argv
+    /// token (`-o file.txt`) -- either way it ends the bundle.
     fn nextFromBundle(self: *Parser) Token {
         const tok: []const u8 = self.args[self.arg_index];
         const c = tok[self.char_index];
@@ -115,6 +151,8 @@ pub const Parser = struct {
         }
     }
 
+    /// Moves past one flag/unknown char in the current bundle, rolling
+    /// over to the next argv token once the bundle is exhausted.
     fn advanceBundleChar(self: *Parser, tok: []const u8) void {
         self.char_index += 1;
         if (self.char_index >= tok.len) {
@@ -123,6 +161,8 @@ pub const Parser = struct {
         }
     }
 
+    /// Resolves a `--name` or `--name=value` token (`rest` is everything
+    /// after the leading `--`).
     fn parseLong(self: *Parser, rest: []const u8) Token {
         var name = rest;
         var value: ?[]const u8 = null;
