@@ -63,6 +63,7 @@ pub const Token = union(enum) {
     end,
 };
 
+/// Stateful tokenizer borrowing `args` and `specs`; neither is copied.
 pub const Parser = struct {
     /// The `argv` slice being walked -- `argv[0]` (the program name)
     /// excluded, see `process.collect`.
@@ -78,6 +79,7 @@ pub const Parser = struct {
     /// `.positional` from then on, even ones that look like flags.
     positional_only: bool = false,
 
+    /// Start parsing `args` without argv[0], using the borrowed option specs.
     pub fn init(args: []const [:0]const u8, specs: []const OptionSpec) Parser {
         return .{ .args = args, .specs = specs };
     }

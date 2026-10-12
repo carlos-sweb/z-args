@@ -38,6 +38,7 @@
 const std = @import("std");
 const simple = @import("simple.zig");
 
+/// Whether a registered option is a flag or consumes a value.
 pub const OptionKind = simple.OptionKind;
 
 /// `name` is the `Result` lookup key -- independent of how the option is
@@ -69,6 +70,7 @@ pub const Diagnostics = struct {
     name: ?[]const u8 = null,
 };
 
+/// Parsing, cross-option validation, and allocation failures.
 pub const Error = error{
     UnknownOption,
     MissingValue,
@@ -89,10 +91,12 @@ pub const Result = struct {
     options: std.StringHashMapUnmanaged([]const u8) = .empty,
     positionals: std.ArrayList([]const u8) = .empty,
 
+    /// Whether the flag registered under `name` was given.
     pub fn flag(self: Result, name: []const u8) bool {
         return self.flags.contains(name);
     }
 
+    /// The last value given for `name`, borrowing the input argument storage.
     pub fn option(self: Result, name: []const u8) ?[]const u8 {
         return self.options.get(name);
     }
@@ -101,6 +105,8 @@ pub const Result = struct {
         return self.flag(name) or self.options.contains(name);
     }
 
+    /// Free result containers using the allocator passed to `Parser.parse`.
+    /// Borrowed names and argument strings are not freed.
     pub fn deinit(self: *Result, allocator: std.mem.Allocator) void {
         self.flags.deinit(allocator);
         self.options.deinit(allocator);
@@ -108,6 +114,7 @@ pub const Result = struct {
     }
 };
 
+/// Runtime registry borrowing spec strings, rule names, and banner text.
 pub const Parser = struct {
     allocator: std.mem.Allocator,
     banner: []const u8 = "",
@@ -115,26 +122,31 @@ pub const Parser = struct {
     requirements: std.ArrayList(Requirement) = .empty,
     conflicts_list: std.ArrayList(Conflict) = .empty,
 
+    /// Create an empty registry whose allocations use `allocator`.
     pub fn init(allocator: std.mem.Allocator) Parser {
         return .{ .allocator = allocator };
     }
 
+    /// Free the registry with the allocator supplied to `init`.
     pub fn deinit(self: *Parser) void {
         self.specs.deinit(self.allocator);
         self.requirements.deinit(self.allocator);
         self.conflicts_list.deinit(self.allocator);
     }
 
+    /// Borrow `text` as the first line of generated usage output.
     pub fn setBanner(self: *Parser, text: []const u8) void {
         self.banner = text;
     }
 
+    /// Register `spec` as a flag, overriding its kind. May return OutOfMemory.
     pub fn addFlag(self: *Parser, spec: Spec) !void {
         var s = spec;
         s.kind = .flag;
         try self.specs.append(self.allocator, s);
     }
 
+    /// Register `spec` as a value option. May return OutOfMemory.
     pub fn addOption(self: *Parser, spec: Spec) !void {
         var s = spec;
         s.kind = .value;
@@ -142,17 +154,20 @@ pub const Parser = struct {
     }
 
     /// If `dependent` is given, `needs` must be given too.
+    /// Both names are `Spec.name` keys. May return OutOfMemory.
     pub fn requires(self: *Parser, dependent: []const u8, needs: []const u8) !void {
         try self.requirements.append(self.allocator, .{ .dependent = dependent, .needs = needs });
     }
 
     /// `a` and `b` may not both be given.
+    /// Both names are `Spec.name` keys. May return OutOfMemory.
     pub fn conflicts(self: *Parser, a: []const u8, b: []const u8) !void {
         try self.conflicts_list.append(self.allocator, .{ .a = a, .b = b });
     }
 
     /// Formats `banner` plus an aligned "flags   description" row per
     /// registered spec. Caller frees the returned slice.
+    /// Free with `allocator`; allocation failure returns OutOfMemory.
     pub fn usageAlloc(self: *Parser, allocator: std.mem.Allocator) ![]u8 {
         var buf: std.ArrayList(u8) = .empty;
         errdefer buf.deinit(allocator);
@@ -189,6 +204,9 @@ pub const Parser = struct {
     /// Runs the whole parse in one call (unlike `Simple.Parser.next()`'s
     /// one-token-per-call model). `diagnostics`, if non-null, is populated
     /// on error with which option/token was the problem.
+    /// `args` excludes argv[0]. Result strings borrow args and spec names;
+    /// release its containers with `Result.deinit(allocator)`.
+    /// Returns `Error` for invalid options, violated rules, or allocation failure.
     pub fn parse(self: *Parser, allocator: std.mem.Allocator, args: []const [:0]const u8, diagnostics: ?*Diagnostics) Error!Result {
         var result: Result = .{};
         errdefer result.deinit(allocator);

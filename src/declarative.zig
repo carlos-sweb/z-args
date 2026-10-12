@@ -9,10 +9,10 @@
 //! `define_argument`) and Nim's `cligen` (README-documented, compiled
 //! examples). One critical, Zig-specific finding decided this tier's whole
 //! shape: `cligen`'s core idea -- reflect over a *function's* parameter
-//! list -- is not portable to Zig at all. `std.builtin.Type.Fn.Param` has
-//! no `name` field (confirmed by reading Zig's own `std/builtin.zig`), so
-//! function-signature reflection can't recover parameter names the way
-//! `std.builtin.Type.StructField` can. `Declarative` is therefore
+//! list -- is not portable to Zig at all. `std.lang.Type.Fn` exposes
+//! parameter types but no parameter names, so function-signature
+//! reflection cannot recover names the way
+//! `std.lang.Type.Struct.field_names` can. `Declarative` is therefore
 //! struct-based only, matching `admiral.cr`'s shape.
 //!
 //! Zig has no field-attribute mechanism (no `@[short('v')]` the way Rust or
@@ -103,6 +103,8 @@ pub const Diagnostics = struct {
     raw: ?[]const u8 = null,
 };
 
+/// Invalid options/values, missing required fields, excess positionals,
+/// or allocation failure while collecting remaining positional arguments.
 pub const Error = error{
     UnknownOption,
     MissingValue,
@@ -130,8 +132,8 @@ fn kebabName(comptime name: []const u8) []const u8 {
     return &result;
 }
 
-fn longNameOf(comptime field: std.builtin.Type.StructField) []const u8 {
-    return field.type.zargs_opts.long orelse comptime kebabName(field.name);
+fn longNameOf(comptime field_name: []const u8, comptime field_type: type) []const u8 {
+    return field_type.zargs_opts.long orelse comptime kebabName(field_name);
 }
 
 /// Checked at comptime, once per `T`, from `parseStruct`: every field must
@@ -139,27 +141,27 @@ fn longNameOf(comptime field: std.builtin.Type.StructField) []const u8 {
 /// be last among `Positional` fields, and no required positional may
 /// follow an optional one.
 fn validateStruct(comptime T: type) void {
-    const fields = @typeInfo(T).@"struct".fields;
+    const info = @typeInfo(T).@"struct";
     comptime var seen_optional_positional = false;
     comptime var rest_seen = false;
-    inline for (fields) |field| {
-        const is_container = switch (@typeInfo(field.type)) {
+    inline for (info.field_names, info.field_types) |field_name, field_type| {
+        const is_container = switch (@typeInfo(field_type)) {
             .@"struct", .@"enum", .@"union", .@"opaque" => true,
             else => false,
         };
-        if (!is_container or !@hasDecl(field.type, "zargs_field_kind")) {
-            @compileError("z-args Declarative: field '" ++ field.name ++ "' of " ++ @typeName(T) ++ " must be wrapped in Declarative.Flag(...) or Declarative.Positional(...)");
+        if (!is_container or !@hasDecl(field_type, "zargs_field_kind")) {
+            @compileError("z-args Declarative: field '" ++ field_name ++ "' of " ++ @typeName(T) ++ " must be wrapped in Declarative.Flag(...) or Declarative.Positional(...)");
         }
-        if (field.type.zargs_field_kind == .positional) {
+        if (field_type.zargs_field_kind == .positional) {
             if (rest_seen) {
-                @compileError("z-args Declarative: the rest-collector positional must be the last Positional field (found '" ++ field.name ++ "' after it)");
+                @compileError("z-args Declarative: the rest-collector positional must be the last Positional field (found '" ++ field_name ++ "' after it)");
             }
-            if (comptime isRestCollector(field.type.Inner)) {
+            if (comptime isRestCollector(field_type.Inner)) {
                 rest_seen = true;
-            } else if (field.type.zargs_opts.default != null) {
+            } else if (field_type.zargs_opts.default != null) {
                 seen_optional_positional = true;
             } else if (seen_optional_positional) {
-                @compileError("z-args Declarative: required positional '" ++ field.name ++ "' cannot come after an optional positional");
+                @compileError("z-args Declarative: required positional '" ++ field_name ++ "' cannot come after an optional positional");
             }
         }
     }
@@ -176,15 +178,18 @@ fn coerceValue(comptime T: type, raw: []const u8) Error!T {
 
 /// Runs the whole parse in one call (same contract as `Builder.Parser.parse`)
 /// and returns the caller's own `T`, fully populated.
+/// `args` excludes argv[0]. String values borrow input storage; free each
+/// rest-collector slice with `allocator`. On failure, `diagnostics` receives
+/// the offending field/token when available. See `Error` for runtime failures.
 pub fn parseStruct(comptime T: type, allocator: std.mem.Allocator, args: []const [:0]const u8, diagnostics: ?*Diagnostics) Error!T {
     comptime validateStruct(T);
-    const fields = @typeInfo(T).@"struct".fields;
+    const info = @typeInfo(T).@"struct";
 
     const positional_field_indices = comptime blk: {
-        var idxs: [fields.len]usize = undefined;
+        var idxs: [info.field_names.len]usize = undefined;
         var count: usize = 0;
-        for (fields, 0..) |field, i| {
-            if (field.type.zargs_field_kind == .positional) {
+        for (info.field_types, 0..) |field_type, i| {
+            if (field_type.zargs_field_kind == .positional) {
                 idxs[count] = i;
                 count += 1;
             }
@@ -195,7 +200,7 @@ pub fn parseStruct(comptime T: type, allocator: std.mem.Allocator, args: []const
     };
 
     var result: T = undefined;
-    var given = [_]bool{false} ** fields.len;
+    var given: [info.field_names.len]bool = @splat(false);
     var rest_list: std.ArrayList([]const u8) = .empty;
     errdefer rest_list.deinit(allocator);
 
@@ -212,19 +217,19 @@ pub fn parseStruct(comptime T: type, allocator: std.mem.Allocator, args: []const
         if (positional_only or tok.len < 2 or tok[0] != '-') {
             if (next_positional >= positional_field_indices.len) return Error.TooManyPositionals;
             const field_idx = positional_field_indices[next_positional];
-            inline for (fields, 0..) |field, idx| {
-                if (comptime field.type.zargs_field_kind == .positional) {
+            inline for (info.field_names, info.field_types, 0..) |field_name, field_type, idx| {
+                if (comptime field_type.zargs_field_kind == .positional) {
                     if (idx == field_idx) {
-                        const FT = field.type;
+                        const FT = field_type;
                         if (comptime isRestCollector(FT.Inner)) {
                             rest_list.append(allocator, tok) catch return Error.OutOfMemory;
                             given[idx] = true;
                         } else {
                             const v = coerceValue(FT.Inner, tok) catch |err| {
-                                if (diagnostics) |d| d.* = .{ .field = field.name, .raw = tok };
+                                if (diagnostics) |d| d.* = .{ .field = field_name, .raw = tok };
                                 return err;
                             };
-                            @field(result, field.name) = .{ .value = v };
+                            @field(result, field_name) = .{ .value = v };
                             given[idx] = true;
                             next_positional += 1;
                         }
@@ -244,33 +249,33 @@ pub fn parseStruct(comptime T: type, allocator: std.mem.Allocator, args: []const
             }
 
             var matched = false;
-            inline for (fields, 0..) |field, idx| {
-                const FT = field.type;
+            inline for (info.field_names, info.field_types, 0..) |field_name, field_type, idx| {
+                const FT = field_type;
                 if (comptime FT.zargs_field_kind == .flag) {
-                    const long = comptime longNameOf(field);
+                    const long = comptime longNameOf(field_name, field_type);
                     if (std.mem.eql(u8, long, name)) {
                         matched = true;
                         if (FT.Inner == bool) {
                             if (inline_value != null) {
-                                if (diagnostics) |d| d.* = .{ .field = field.name, .long = long };
+                                if (diagnostics) |d| d.* = .{ .field = field_name, .long = long };
                                 return Error.UnexpectedValue;
                             }
-                            @field(result, field.name) = .{ .value = true };
+                            @field(result, field_name) = .{ .value = true };
                             given[idx] = true;
                         } else {
                             const v = inline_value orelse blk: {
                                 if (i + 1 >= args.len) {
-                                    if (diagnostics) |d| d.* = .{ .field = field.name, .long = long };
+                                    if (diagnostics) |d| d.* = .{ .field = field_name, .long = long };
                                     return Error.MissingValue;
                                 }
                                 i += 1;
                                 break :blk args[i];
                             };
                             const coerced = coerceValue(FT.Inner, v) catch |err| {
-                                if (diagnostics) |d| d.* = .{ .field = field.name, .long = long, .raw = v };
+                                if (diagnostics) |d| d.* = .{ .field = field_name, .long = long, .raw = v };
                                 return err;
                             };
-                            @field(result, field.name) = .{ .value = coerced };
+                            @field(result, field_name) = .{ .value = coerced };
                             given[idx] = true;
                         }
                     } else if (FT.Inner == bool and FT.zargs_opts.default == true) {
@@ -279,10 +284,10 @@ pub fn parseStruct(comptime T: type, allocator: std.mem.Allocator, args: []const
                         if (std.mem.eql(u8, neg, name)) {
                             matched = true;
                             if (inline_value != null) {
-                                if (diagnostics) |d| d.* = .{ .field = field.name, .long = long };
+                                if (diagnostics) |d| d.* = .{ .field = field_name, .long = long };
                                 return Error.UnexpectedValue;
                             }
-                            @field(result, field.name) = .{ .value = false };
+                            @field(result, field_name) = .{ .value = false };
                             given[idx] = true;
                         }
                     }
@@ -295,7 +300,7 @@ pub fn parseStruct(comptime T: type, allocator: std.mem.Allocator, args: []const
             continue;
         }
 
-        try applyShortBundle(T, fields, tok, &i, args, &result, &given, diagnostics);
+        try applyShortBundle(T, tok, &i, args, &result, &given, diagnostics);
     }
 
     // Unconditional even when empty: `toOwnedSlice` always leaves `rest_list`
@@ -303,23 +308,23 @@ pub fn parseStruct(comptime T: type, allocator: std.mem.Allocator, args: []const
     // a harmless no-op from here on -- unlike a manual `deinit` (which sets
     // the list to `undefined`, not `.empty`, making a later `errdefer`-driven
     // `deinit` a double-free).
-    inline for (fields, 0..) |field, idx| {
-        if (comptime field.type.zargs_field_kind == .positional and isRestCollector(field.type.Inner)) {
-            @field(result, field.name) = .{ .value = rest_list.toOwnedSlice(allocator) catch return Error.OutOfMemory };
+    inline for (info.field_names, info.field_types, 0..) |field_name, field_type, idx| {
+        if (comptime field_type.zargs_field_kind == .positional and isRestCollector(field_type.Inner)) {
+            @field(result, field_name) = .{ .value = rest_list.toOwnedSlice(allocator) catch return Error.OutOfMemory };
             given[idx] = true;
         }
     }
 
-    inline for (fields, 0..) |field, idx| {
+    inline for (info.field_names, info.field_types, 0..) |field_name, field_type, idx| {
         if (!given[idx]) {
-            const FT = field.type;
+            const FT = field_type;
             if (FT.zargs_opts.default) |d| {
-                @field(result, field.name) = .{ .value = d };
+                @field(result, field_name) = .{ .value = d };
             } else if (comptime FT.zargs_field_kind == .flag) {
-                if (diagnostics) |d| d.* = .{ .field = field.name };
+                if (diagnostics) |d| d.* = .{ .field = field_name };
                 return Error.MissingRequiredFlag;
             } else {
-                if (diagnostics) |d| d.* = .{ .field = field.name };
+                if (diagnostics) |d| d.* = .{ .field = field_name };
                 return Error.MissingRequiredPositional;
             }
         }
@@ -330,7 +335,6 @@ pub fn parseStruct(comptime T: type, allocator: std.mem.Allocator, args: []const
 
 fn applyShortBundle(
     comptime T: type,
-    comptime fields: []const std.builtin.Type.StructField,
     tok: []const u8,
     i: *usize,
     args: []const [:0]const u8,
@@ -338,6 +342,7 @@ fn applyShortBundle(
     given: []bool,
     diagnostics: ?*Diagnostics,
 ) Error!void {
+    const info = @typeInfo(T).@"struct";
     const rest = tok[1..];
 
     // Validate the whole bundle before applying any of it (same contract
@@ -350,8 +355,8 @@ fn applyShortBundle(
         const c = rest[idx];
         var found = false;
         var is_value = false;
-        inline for (fields) |field| {
-            const FT = field.type;
+        inline for (info.field_types) |field_type| {
+            const FT = field_type;
             if (comptime FT.zargs_field_kind == .flag) {
                 if (FT.zargs_opts.short) |s| {
                     if (s == c) {
@@ -375,12 +380,12 @@ fn applyShortBundle(
     var k: usize = 0;
     while (k < flag_count) : (k += 1) {
         const c = rest[k];
-        inline for (fields, 0..) |field, fidx| {
-            const FT = field.type;
+        inline for (info.field_names, info.field_types, 0..) |field_name, field_type, fidx| {
+            const FT = field_type;
             if (comptime FT.zargs_field_kind == .flag and FT.Inner == bool) {
                 if (FT.zargs_opts.short) |s| {
                     if (s == c) {
-                        @field(result, field.name) = .{ .value = true };
+                        @field(result, field_name) = .{ .value = true };
                         given[fidx] = true;
                     }
                 }
@@ -391,24 +396,24 @@ fn applyShortBundle(
     if (stop_index) |si| {
         const c = rest[si];
         const attached = rest[si + 1 ..];
-        inline for (fields, 0..) |field, fidx| {
-            const FT = field.type;
+        inline for (info.field_names, info.field_types, 0..) |field_name, field_type, fidx| {
+            const FT = field_type;
             if (comptime FT.zargs_field_kind == .flag and FT.Inner != bool) {
                 if (FT.zargs_opts.short) |s| {
                     if (s == c) {
                         const value = if (attached.len > 0) attached else blk: {
                             if (i.* + 1 >= args.len) {
-                                if (diagnostics) |d| d.* = .{ .field = field.name, .short = c };
+                                if (diagnostics) |d| d.* = .{ .field = field_name, .short = c };
                                 return Error.MissingValue;
                             }
                             i.* += 1;
                             break :blk args[i.*];
                         };
                         const coerced = coerceValue(FT.Inner, value) catch |err| {
-                            if (diagnostics) |d| d.* = .{ .field = field.name, .short = c, .raw = value };
+                            if (diagnostics) |d| d.* = .{ .field = field_name, .short = c, .raw = value };
                             return err;
                         };
-                        @field(result, field.name) = .{ .value = coerced };
+                        @field(result, field_name) = .{ .value = coerced };
                         given[fidx] = true;
                     }
                 }
@@ -421,21 +426,22 @@ fn applyShortBundle(
 /// field. Everything needed is already known from `T` at comptime, so
 /// unlike `Builder.Parser.usageAlloc` this is a free function -- there is
 /// no runtime registration step in this tier.
+/// Free the returned text with `allocator`. May return `error.OutOfMemory`.
 pub fn usageAlloc(comptime T: type, allocator: std.mem.Allocator, banner: []const u8) ![]u8 {
     comptime validateStruct(T);
-    const fields = @typeInfo(T).@"struct".fields;
+    const info = @typeInfo(T).@"struct";
 
     var buf: std.ArrayList(u8) = .empty;
     errdefer buf.deinit(allocator);
     if (banner.len > 0) try buf.print(allocator, "{s}\n", .{banner});
 
-    inline for (fields) |field| {
-        const FT = field.type;
+    inline for (info.field_names, info.field_types) |field_name, field_type| {
+        const FT = field_type;
         var label_buf: std.ArrayList(u8) = .empty;
         defer label_buf.deinit(allocator);
 
         if (comptime FT.zargs_field_kind == .flag) {
-            const long = comptime longNameOf(field);
+            const long = comptime longNameOf(field_name, field_type);
             if (FT.zargs_opts.short) |s| {
                 try label_buf.print(allocator, "-{c}, --{s}", .{ s, long });
             } else {
@@ -443,9 +449,9 @@ pub fn usageAlloc(comptime T: type, allocator: std.mem.Allocator, banner: []cons
             }
             if (FT.Inner != bool) try label_buf.appendSlice(allocator, " <value>");
         } else if (comptime isRestCollector(FT.Inner)) {
-            try label_buf.print(allocator, "[{s}...]", .{field.name});
+            try label_buf.print(allocator, "[{s}...]", .{field_name});
         } else {
-            try label_buf.print(allocator, "<{s}>", .{field.name});
+            try label_buf.print(allocator, "<{s}>", .{field_name});
         }
 
         var suffix_buf: std.ArrayList(u8) = .empty;

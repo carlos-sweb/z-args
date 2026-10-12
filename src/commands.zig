@@ -42,8 +42,11 @@
 //! `Declarative` already work).
 const std = @import("std");
 
+/// Leaf callback receiving remaining arguments and the dispatch allocator.
+/// Its errors propagate unchanged from `dispatch`.
 pub const Action = *const fn (allocator: std.mem.Allocator, args: []const [:0]const u8) anyerror!void;
 
+/// A command node borrowing its name, help, and child nodes.
 pub const Command = struct {
     name: []const u8,
     /// A single alternate name for this subcommand, ground-truthed from
@@ -59,6 +62,7 @@ pub const Command = struct {
     action: ?Action = null,
 };
 
+/// Dispatch reached a node with no applicable child and no action.
 pub const Error = error{MissingSubcommand};
 
 /// Walks `args[0]` against `root.children`'s names/aliases, recursing
@@ -86,6 +90,7 @@ pub fn dispatch(root: Command, allocator: std.mem.Allocator, args: []const [:0]c
 /// Lists `node`'s immediate children (name [, alias] + help), one per
 /// line, under `banner` -- a summary for exactly this level, not the
 /// whole tree. Caller-owned, freed by the caller.
+/// Free with `allocator`; allocation failure returns `error.OutOfMemory`.
 pub fn usageAlloc(node: Command, allocator: std.mem.Allocator, banner: []const u8) ![]u8 {
     var buf: std.ArrayList(u8) = .empty;
     errdefer buf.deinit(allocator);

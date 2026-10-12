@@ -7,6 +7,8 @@ const std = @import("std");
 
 /// Materializes the remaining args (skipping argv[0]) into an owned slice.
 /// Caller frees with the same allocator.
+/// Strings borrow the iterator's storage; keep it alive while using them.
+/// Returns `error.OutOfMemory` if the argument slice cannot be allocated.
 pub fn collect(allocator: std.mem.Allocator, it: *std.process.Args.Iterator) ![][:0]const u8 {
     _ = it.skip();
     var list: std.ArrayList([:0]const u8) = .empty;

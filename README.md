@@ -1,5 +1,7 @@
 # z-args
 
+Version **0.1.0** · **Zig 0.17.0** · [Native API documentation](https://carlos-sweb.github.io/z-args/)
+
 A package of command-line argument parsing modules for Zig — not a monolithic library, but a **ladder of complexity** the user climbs only as far as their CLI actually needs.
 
 ## Why it exists
@@ -360,6 +362,40 @@ The tree itself (`root` above) is a plain comptime literal, not a runtime-regist
 
 All four taxonomy rows are implemented and tested. **Simple** (`src/simple.zig`, `src/process.zig`) is a zero-allocation, zero-I/O flag tokenizer ground-truthed against real `getopt_long(3)` (bundling, attached/separate values, `=`-long options, `--`, non-fatal errors that let parsing continue). **Builder** (`src/builder.zig`) is imperative registration + auto-generated usage text + cross-flag validation (`requires`/`conflicts`), ground-truthed against real Crystal `OptionParser` (both its compiled behavior and its stdlib source). **Declarative** (`src/declarative.zig`) is comptime `@typeInfo` reflection over the caller's own struct, ground-truthed against Crystal `admiral.cr`'s source and Nim `cligen`'s documented behavior -- including confirming, by reading Zig's own stdlib, that `cligen`'s function-signature-reflection approach has no Zig equivalent (function parameter names aren't preserved in Zig's type reflection), which is why this tier is struct-based. **Commands** (`src/commands.zig`) is a subcommand tree declared as a static literal, routing `argv[0]` down to a leaf callback that composes over `Builder` or `Declarative`, ground-truthed against Crystal `admiral.cr`'s source and Go `cobra`'s source -- deliberately following `admiral.cr`'s simpler direct-`argv[0]`-match model over `cobra`'s heavier flag-skipping search, documented as such.
 
-## Target
+## Build and documentation
 
-Zig 0.16.0 (stable).
+Requires Zig **0.17.0** (pinned in `mise.toml`).
+
+```sh
+zig build test --summary all
+zig build test -Doptimize=ReleaseSafe --summary all
+zig build test -Doptimize=ReleaseFast --summary all
+zig build test -Doptimize=ReleaseSmall --summary all
+zig build docs
+```
+
+`zig build` runs the tests by default. `zig build docs` generates Zig's native
+API reference in `zig-out/docs`; serve it over HTTP to view it locally:
+
+```sh
+python3 -m http.server 8000 --directory zig-out/docs
+```
+
+Open <http://localhost:8000/>. GitHub Actions tests all four optimization modes
+and generates the same documentation before deploying it to
+[GitHub Pages](https://carlos-sweb.github.io/z-args/) on pushes to `main`.
+Pull requests run the checks without deploying.
+
+## Zig 0.17 migration
+
+Array repetition (`**`) was removed in favor of `@splat`, and struct reflection
+now exposes parallel `field_names` and `field_types` arrays. The Declarative tier
+uses both new APIs while preserving argument parsing behavior. See the
+[official release notes](https://ziglang.org/download/0.17.0/release-notes.html).
+The Zig 0.16 API sketches in `args.md` are historical research.
+
+## Release 0.1.0
+
+See [CHANGELOG.md](./CHANGELOG.md) for the release contents. The package exports
+one `zargs` module with Simple, Builder, Declarative, Commands, and
+`collectProcessArgs`. Its package version is `0.1.0` in `build.zig.zon`.
